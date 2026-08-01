@@ -1,5 +1,7 @@
 # Verify Before Ship
 
+[![CI](https://github.com/OrenSegal/verify-before-ship/actions/workflows/ci.yml/badge.svg)](https://github.com/OrenSegal/verify-before-ship/actions/workflows/ci.yml) [![License: MIT](https://img.shields.io/badge/license-MIT-black)](LICENSE)
+
 A Claude Code / agent-skills skill that catches AI-fabricated claims before they reach a human — re-fetches every source an agent cites and confirms the claim is actually on the page, instead of trusting the same model's self-graded confidence.
 
 Extracted and generalized from [signal-scout](https://github.com/OrenSegal/signal-scout)'s source-verification mechanism (`verify_sources.py`) — same containment-checking engine, decoupled from that project's lead-gen-specific schema so it works on any `(claim, source_url)` pair: leads, research citations, podcast quotes, changelog claims, competitive battlecards, anything an agent is about to ship with a source attached.
