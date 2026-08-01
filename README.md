@@ -36,6 +36,10 @@ Output — the same array, annotated with `verification_tier`, `verification_not
 
 See `SKILL.md` for the full workflow and tier meanings, `references/methodology.md` for why it's built this way.
 
+## Support this project
+
+If this saved you a hallucinated-source incident, [sponsoring on GitHub](https://github.com/sponsors/OrenSegal) keeps it maintained.
+
 ## License
 
 MIT — see `LICENSE`.
