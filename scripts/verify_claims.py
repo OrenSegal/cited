@@ -170,7 +170,8 @@ def fetch_text(url: str, timeout: int) -> tuple[int | None, str]:
             raw = response.read(2_000_000).decode(charset, errors="ignore")
     except urllib.error.HTTPError as exc:
         return exc.code, ""
-    except Exception:
+    except Exception as exc:
+        print(f"[verify-before-ship] fetch failed for {url}: {exc}", file=sys.stderr)
         return None, ""
     parser = _TextExtractor()
     parser.feed(raw)
@@ -192,7 +193,8 @@ def fetch_wayback(url: str, timeout: int) -> tuple[str, str, str]:
         closest = (info.get("archived_snapshots") or {}).get("closest") or {}
         snapshot_url = closest.get("url") if closest.get("available") else ""
         snapshot_date = str(closest.get("timestamp", ""))[:8]
-    except Exception:
+    except Exception as exc:
+        print(f"[verify-before-ship] wayback lookup failed for {url}: {exc}", file=sys.stderr)
         return "", "", ""
     if not snapshot_url:
         return "", "", ""
