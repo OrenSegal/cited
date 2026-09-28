@@ -46,10 +46,6 @@ See `SKILL.md` for the full workflow and tier meanings, `references/methodology.
 - Negation and qualifiers are invisible to it. "did not raise" and "raised" share most of their words.
 - Pages that need JavaScript to render, or that block scripted fetches, can't be checked. Those come back `unverified` or `snippet_only`.
 
-## Support this project
-
-If this saved you a hallucinated-source incident, [sponsoring on GitHub](https://github.com/sponsors/OrenSegal) keeps it maintained.
-
 ## License
 
 MIT. See `LICENSE`.
