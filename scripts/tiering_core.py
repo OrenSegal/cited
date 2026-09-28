@@ -88,8 +88,40 @@ def _numbers(text: str) -> set[str]:
     return {n.replace(",", "") for n in re.findall(r"\d+(?:[.,]\d+)*", str(text or ""))}
 
 
+_SCALE_WORDS = {
+    "k": "thousand", "thousand": "thousand",
+    "m": "million", "mn": "million", "mm": "million", "million": "million",
+    "b": "billion", "bn": "billion", "billion": "billion",
+    "t": "trillion", "tn": "trillion", "trillion": "trillion",
+    "%": "percent", "percent": "percent",
+}
+
+
+def _quantities(text: str) -> set[str]:
+    """Numbers carrying a scale word, normalized: "$40M" and "40 million" both
+    become "40 million". A bare number check can't tell $40 million from
+    $40 billion; this can."""
+    found = set()
+    pattern = r"(\d+(?:[.,]\d+)*)\s*(%|[A-Za-z]+)\b|(\d+(?:[.,]\d+)*)\s*(%)"
+    for m in re.finditer(pattern, str(text or "")):
+        num, unit = (m.group(1), m.group(2)) if m.group(1) else (m.group(3), m.group(4))
+        scale = _SCALE_WORDS.get(unit.lower())
+        if scale:
+            found.add(f"{num.replace(',', '')} {scale}")
+    return found
+
+
+def _letter_identifiers(text: str) -> set[str]:
+    """Capitalized word followed by a single capital letter: "Series B",
+    "Class A". The one-letter part is the fact, and it's too short to pass
+    the name check on its own."""
+    return {f"{w} {l}" for w, l in re.findall(r"\b([A-Z][a-z]+) ([A-Z])\b", str(text or ""))
+            if l != "I"}  # the pronoun, as in "Yesterday I"
+
+
 def missing_specifics(claim: str, page_text: str) -> list[str]:
-    """Numbers and capitalized names in the claim that do not appear on the page.
+    """Numbers (with their scale word), capitalized names and one-letter
+    identifiers like "Series B" in the claim that do not appear on the page.
 
     A fabricated claim about a real entity (a funding round, an investor, a
     date) shares the entity's name with the page, so it clears the topical
@@ -98,6 +130,10 @@ def missing_specifics(claim: str, page_text: str) -> list[str]:
     skipped because it is capitalized by position.
     """
     missing = sorted(_numbers(claim) - _numbers(page_text))
+    missing += sorted(_quantities(claim) - _quantities(page_text))
+    page_lower = " " + " ".join(_words(page_text)) + " "
+    missing += sorted(i for i in _letter_identifiers(claim)
+                      if " " + " ".join(_words(i)) + " " not in page_lower)
     page_words = set(_words(page_text))
     tokens = re.findall(r"[A-Za-z][A-Za-z']*", str(claim or ""))
     for token in tokens[1:]:

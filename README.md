@@ -42,7 +42,7 @@ See `SKILL.md` for the full workflow and tier meanings, `references/methodology.
 
 - Matching is lexical. It compares words and word sequences. It cannot tell whether a reworded claim means the same thing as the page, or whether a quoted line means what your artifact says it means.
 - A claim can be `verified` and still be wrong if the page is wrong, or if the page has changed since the check.
-- The specifics check treats numbers and capitalized words as the facts to look for. That is an English-language shortcut. It skips the claim's first word, misses lowercase brand names, and can flag an ordinary capitalized word that the page happens not to use.
+- The specifics check treats numbers (with scale words, so "$40 billion" does not pass for "$40 million"), capitalized words and one-letter identifiers like "Series B" as the facts to look for. That is an English-language shortcut. It skips the claim's first word, misses lowercase brand names, and can flag an ordinary capitalized word that the page happens not to use.
 - Negation and qualifiers are invisible to it. "did not raise" and "raised" share most of their words.
 - Pages that need JavaScript to render, or that block scripted fetches, can't be checked. Those come back `unverified` or `snippet_only`.
 
