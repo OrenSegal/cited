@@ -11,7 +11,11 @@ Containment fixes this by dividing only by the length of the **claim**, never th
 - **Quoted** — n-gram (word-sequence) overlap between the claim and the page. High only when the claim's actual wording appears in sequence on the page. This is the signal that proves quotation, not just topical relevance.
 - **Topical** — overlap of the claim's distinctive (non-stopword) vocabulary with the page. Survives paraphrasing, but only proves the claim is *about* what the page is about — not that the specific assertion is there.
 
-A claim needs to clear a **quoted** threshold to be marked `verified`, a **topical** threshold (without quotation) to be marked `low_match`, and below both is `unsupported` — the fabrication signal.
+A claim needs to clear a **quoted** threshold to be marked `verified`, a **topical** threshold (without quotation) to be marked `low_match`, and below both is `unsupported`, the fabrication signal.
+
+Before either threshold applies, the claim's specifics are checked: every number in the claim (`$12M` and `$12 million` both reduce to `12`) and every capitalized word after the first must appear on the page. If any is missing the claim is `unsupported`, whatever its scores. Without this, "Acme Robotics raised a $12M Series A led by Sequoia" checked against Acme's homepage scored `low_match`, because "acme" and "robotics" alone cleared the topical threshold. A claim with one wrong number could also clear the quoted threshold on bigrams alone.
+
+`low_match` is not shippable. Shared vocabulary is what a real paraphrase looks like, and it is also what a fabricated claim about a real entity looks like; this check cannot tell them apart. The script fails the run on `low_match` so a human reads the claim against the page before it ships.
 
 ## Why unsupported is worse than broken
 

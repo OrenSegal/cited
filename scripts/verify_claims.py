@@ -25,9 +25,10 @@ Input schema — a JSON array of objects, each with:
 Usage:
     python3 verify_claims.py claims.json [--timeout 10] [--annotate-out OUT.json]
 
-Exit code is non-zero if any source is unreachable (dead link, invalid URL) or
-any claim is missing from its live page. Paraphrase is reported, not failed —
-rewording a real claim is legitimate; inventing one is not.
+Exit code is non-zero if any source is unreachable (dead link, invalid URL),
+any claim is missing from its live page, or any claim only shares vocabulary
+with the page (low_match). A low match is not proof the claim is on the page,
+so it needs a human to check it before the artifact ships.
 """
 
 from __future__ import annotations
@@ -48,8 +49,10 @@ from urllib.parse import urlparse
 from tiering_core import (
     TIER_BROKEN,
     TIER_LABELS,
+    TIER_LOW_MATCH,
     TIER_SNIPPET_ONLY,
     TIER_UNSUPPORTED,
+    blocking_reason,
     tier_for_claim,
 )
 
@@ -284,13 +287,19 @@ def main() -> None:
         )
     if broken:
         print(f"\n{broken} source(s) are unreachable or invalid. Drop the claim or find a working source.")
+    low_match = counts.get(TIER_LOW_MATCH, 0)
+    if low_match:
+        print(
+            f"\n{low_match} claim(s) only share vocabulary with their page and are not quoted from it. "
+            "A human must check each one against the page, or tighten it to what the page says, before shipping."
+        )
 
     if args.annotate_out:
         args.annotate_out.parent.mkdir(parents=True, exist_ok=True)
         args.annotate_out.write_text(json.dumps(entries, indent=2), encoding="utf-8")
         print(f"\nAnnotated JSON written: {args.annotate_out.resolve()}")
 
-    if broken or unsupported:
+    if blocking_reason(counts):
         sys.exit(1)
 
 
