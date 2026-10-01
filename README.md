@@ -2,6 +2,8 @@
 
 [![CI](https://github.com/OrenSegal/cited/actions/workflows/ci.yml/badge.svg)](https://github.com/OrenSegal/cited/actions/workflows/ci.yml) [![License: MIT](https://img.shields.io/badge/license-MIT-black)](LICENSE)
 
+Part of [sous](https://github.com/OrenSegal/sous): tools for checking what coding agents actually do.
+
 cited checks that a claim is on the page it cites. You give it a list of claims, each with a source URL. It fetches every URL itself and checks whether the claim's words, numbers and names appear on that page. Claims that are not there are flagged before the artifact carrying them reaches a person.
 
 It ships as a Claude Code plugin (a skill, a `/cited:check` command and a `cited` command-line tool) and as a single Python script you can run anywhere. Python 3.10+, standard library only.
@@ -222,8 +224,10 @@ The network grants are needed because Bash runs sandboxed, and `catch-fabricated
 
 See [CONTRIBUTING.md](CONTRIBUTING.md). `skills/cited/references/methodology.md` explains the scoring.
 
-Extracted and generalized from the source-verification step of [signal-scout](https://github.com/OrenSegal/signal-scout).
-
 ## License
 
 MIT. See [LICENSE](LICENSE).
+
+## Background
+
+cited began as the source-verification step of [signal-scout](https://github.com/OrenSegal/signal-scout).

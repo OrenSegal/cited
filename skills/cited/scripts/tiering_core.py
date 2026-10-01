@@ -1,10 +1,4 @@
-"""Containment-based claim/source tiering — the reusable core of cited.
-
-Adapted from signal-scout's `signal_scout_core.py` (github.com/OrenSegal/signal-scout),
-generalized to work on any (claim, source page text) pair instead of a specific
-prospect schema. No project-specific fields — this module doesn't know or care
-what domain the claim came from.
-"""
+"""Scores a claim against the text of the page it cites and assigns a tier. Pure: no I/O."""
 
 from __future__ import annotations
 
