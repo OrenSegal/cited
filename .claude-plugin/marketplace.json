@@ -7,7 +7,7 @@
       "name": "cited",
       "source": "./",
       "description": "Re-fetches every cited source and flags claims that are not on the page.",
-      "version": "0.2.0",
+      "version": "0.3.0",
       "license": "MIT"
     }
   ]

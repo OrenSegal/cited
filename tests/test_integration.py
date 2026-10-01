@@ -218,3 +218,12 @@ def test_archived_error_page_is_not_used(tmp_path, local_wayback, capsys):
 ])
 def test_raw_snapshot_url(given, raw):
     assert vc.raw_snapshot_url(given) == raw
+
+
+def test_version_matches_the_plugin_manifests():
+    plugin = json.loads((ROOT / ".claude-plugin" / "plugin.json").read_text(encoding="utf-8"))
+    market = json.loads((ROOT / ".claude-plugin" / "marketplace.json").read_text(encoding="utf-8"))
+    listed = {p["name"]: p["version"] for p in market["plugins"]}
+    assert plugin["version"] == listed[plugin["name"]] == vc.VERSION
+    changelog = (ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
+    assert f"## {vc.VERSION}" in changelog
