@@ -57,7 +57,7 @@ Input is a JSON array. `claim` and `source_url` are required; `id` (string or in
 ]
 ```
 
-An invalid file is rejected before anything is fetched, with every problem listed (`claims.json[1]: missing required field 'source_url'`).
+An invalid file is rejected before anything is fetched, with every problem listed by its zero-based position (`claims.json[0]: missing required field 'source_url'`).
 
 ## Tiers
 
