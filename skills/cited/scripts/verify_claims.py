@@ -26,7 +26,8 @@ Exit codes:
        (with --strict, also unverified and snippet_only)
     2  usage error or invalid input; nothing was fetched
     3  --offline and at least one source had no cached copy (only if not 1)
-    4  internal error while checking a claim (only if not 1)
+    4  internal error while checking a claim, or --annotate-out could not be
+       written (only if not 1)
     130 interrupted
 """
 
@@ -635,9 +636,15 @@ def main(argv: list[str] | None = None) -> int:
     reason = blocking_reason(counts, strict=args.strict)
     code = _exit_code(reason, offline_misses, internal_errors)
 
+    annotated = False
     if args.annotate_out:
-        args.annotate_out.parent.mkdir(parents=True, exist_ok=True)
-        args.annotate_out.write_text(json.dumps(entries, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+        try:
+            args.annotate_out.parent.mkdir(parents=True, exist_ok=True)
+            args.annotate_out.write_text(json.dumps(entries, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+            annotated = True
+        except OSError as exc:
+            _log(f"could not write {args.annotate_out}: {exc.strerror or exc}")
+            code = EXIT_BLOCKING if reason else EXIT_INTERNAL_ERROR
 
     if args.json:
         report = {
@@ -659,7 +666,7 @@ def main(argv: list[str] | None = None) -> int:
         sys.stdout.write("\n")
     else:
         _print_table(rows, counts, offline_misses, args.strict)
-        if args.annotate_out:
+        if annotated:
             print(f"\nAnnotated JSON written: {args.annotate_out.resolve()}")
     return code
 
