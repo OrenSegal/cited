@@ -1,0 +1,14 @@
+{
+  "name": "cited",
+  "owner": { "name": "Oren Segal" },
+  "description": "Marketplace for the cited plugin: checks that a claim is on the page it cites.",
+  "plugins": [
+    {
+      "name": "cited",
+      "source": "./",
+      "description": "Re-fetches every cited source and flags claims that are not on the page.",
+      "version": "0.2.0",
+      "license": "MIT"
+    }
+  ]
+}

@@ -1,0 +1,10 @@
+{
+  "name": "cited",
+  "version": "0.2.0",
+  "description": "Re-fetches every cited source and flags claims whose words, numbers or names are not on the page, so an agent's output is checked against the source instead of the model's own confidence.",
+  "author": { "name": "Oren Segal" },
+  "homepage": "https://github.com/OrenSegal/cited",
+  "repository": "https://github.com/OrenSegal/cited",
+  "license": "MIT",
+  "keywords": ["citations", "verification", "fact-checking", "sources", "claude-code"]
+}
