@@ -15,9 +15,9 @@ import threading
 import time
 
 import pytest
-from conftest import fake_dns
 
 import verify_claims as vc
+from conftest import fake_dns
 
 
 def _sf():

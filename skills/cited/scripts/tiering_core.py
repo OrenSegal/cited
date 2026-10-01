@@ -132,8 +132,8 @@ def _letter_identifiers(text: str) -> set[str]:
     """Capitalized word followed by a single capital letter: "Series B",
     "Class A". The one-letter part is the fact, and it's too short to pass
     the name check on its own."""
-    return {f"{w} {l}" for w, l in re.findall(r"\b([A-Z][a-z]+) ([A-Z])\b", str(text or ""))
-            if l != "I"}  # the pronoun, as in "Yesterday I"
+    return {f"{w} {letter}" for w, letter in re.findall(r"\b([A-Z][a-z]+) ([A-Z])\b", str(text or ""))
+            if letter != "I"}  # the pronoun, as in "Yesterday I"
 
 
 def missing_specifics(claim: str, page_text: str) -> list[str]:

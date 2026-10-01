@@ -630,7 +630,7 @@ def main(argv: list[str] | None = None) -> int:
     checked_on = datetime.now(timezone.utc).date().isoformat()
     counts = {tier: 0 for tier in TIERS}
     rows: list[dict[str, Any]] = []
-    for index, (entry, verdict) in enumerate(zip(entries, verdicts)):
+    for index, (entry, verdict) in enumerate(zip(entries, verdicts, strict=True)):
         counts[verdict.tier] = counts.get(verdict.tier, 0) + 1
         entry["verification_tier"] = verdict.tier
         entry["verification_note"] = verdict.note

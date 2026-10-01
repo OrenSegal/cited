@@ -8,9 +8,9 @@ import io
 import json
 
 import pytest
-from conftest import fake_dns
 
 import verify_claims as vc
+from conftest import fake_dns
 from safe_fetch import FetchPolicy, decode_body
 
 FILLER = " ".join(["The annual report also covers staffing, offices and product plans."] * 6)

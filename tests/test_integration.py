@@ -10,9 +10,9 @@ import subprocess
 import sys
 
 import pytest
-from conftest import FIXTURES, fake_dns
 
 import verify_claims as vc
+from conftest import FIXTURES, fake_dns
 
 ROOT = FIXTURES.parent.parent
 BIN = ROOT / "bin" / "cited"
