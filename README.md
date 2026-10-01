@@ -6,7 +6,7 @@ Part of [sous](https://github.com/OrenSegal/sous): tools for checking what codin
 
 cited checks that a claim is on the page it cites. You give it a list of claims, each with a source URL. It fetches every URL itself and checks whether the claim's words, numbers and names appear on that page. Claims that are not there are flagged before the artifact carrying them reaches a person.
 
-It ships as a Claude Code plugin (a skill, a `/cited:check` command and a `cited` command-line tool) and as a single Python script you can run anywhere. Python 3.10+, standard library only.
+It ships as a Claude Code plugin (a skill, a `/cited:check` command and a `cited` command-line tool), and the same tool runs anywhere with Python 3.10+. Standard library only.
 
 It checks containment, not truth. A `verified` claim is on the page; whether the page is right is a separate question.
 
@@ -17,7 +17,7 @@ Asking the model that wrote a claim how sure it is does not catch a claim it mad
 - **Containment, not similarity.** String-similarity scores divide by the length of both texts, so a real quote on a long page scores near zero. cited divides by the claim alone, so page length can neither hide nor manufacture a match.
 - **Quotation and vocabulary are scored separately.** Shared word sequences show quotation. Shared vocabulary survives rewording but only shows the claim is on the same topic, so a vocabulary-only match is `low_match` and needs a person.
 - **Specifics must be on the page.** Numbers (with their scale, so `$40 billion` does not pass for `$40 million`), capitalized names and identifiers like `Series B` in the claim must all appear on the page, or the claim is `unsupported`.
-- **Fair to sites that block bots.** Reddit, X, LinkedIn, Glassdoor and Indeed refuse scripted fetches. Those come back `snippet_only`, not as fabrications or dead links.
+- **Fair to sites that block bots.** Sites such as Reddit, X and LinkedIn refuse scripted fetches. Those come back `snippet_only`, not as fabrications or dead links.
 
 ## Install
 
@@ -77,13 +77,11 @@ An invalid file is rejected before anything is fetched, with every problem liste
 | Code | Meaning |
 |---|---|
 | 0 | Nothing blocking. |
-| 1 | At least one blocking claim (see Tiers). |
+| 1 | At least one blocking claim. |
 | 2 | Usage error or invalid claims file. Nothing was fetched. |
-| 3 | `--offline` and at least one source had no cached copy (and nothing was blocking). |
-| 4 | An internal error while checking a claim, or `--annotate-out` could not be written (and nothing was blocking). The other claims are still checked and reported. |
+| 3 | `--offline` and at least one source had no cached copy, and no other code applies. |
+| 4 | An internal error while checking a claim, or `--annotate-out` could not be written, and nothing was blocking. The other claims are still checked and reported. |
 | 130 | Interrupted. |
-
-When several apply, 1 wins over 4, and 4 over 3.
 
 ## Options
 
@@ -93,7 +91,7 @@ When several apply, 1 wins over 4, and 4 over 3.
 | `--annotate-out PATH` | | Write the input back with `verification_tier`, `verification_note` and `verified_at` on every entry. |
 | `--strict` | off | Also block on `unverified` and `snippet_only`. |
 | `--timeout SEC` | 10 | Per-request limit, connect through last byte. |
-| `--retries N` | 2 | Retries for timeouts, connection errors, 429 and 5xx, with exponential backoff and jitter. `Retry-After` is honored up to 30 s. Bot-walled sites are not retried. |
+| `--retries N` | 2 | Retries for timeouts, connection errors, 429 and 5xx, with exponential backoff and jitter. Bot-walled sites are not retried. |
 | `--concurrency N` | 4 | Claims checked in parallel. Each URL is fetched once per run, however many claims cite it. |
 | `--per-host-delay SEC` | 1.0 | Minimum gap between requests to the same host. |
 | `--no-wayback` | off | Do not look dead or empty pages up on the Wayback Machine. |
@@ -112,7 +110,7 @@ When several apply, 1 wins over 4, and 4 over 3.
 ```json
 {
   "schema_version": 1,
-  "cited_version": "0.3.0",
+  "cited_version": "x.y.z",
   "checked_at": "2026-10-01T12:00:00Z",
   "options": {"strict": false, "offline": false, "wayback": true},
   "summary": {
@@ -144,7 +142,7 @@ When several apply, 1 wins over 4, and 4 over 3.
 }
 ```
 
-- `summary.counts` always has all six tiers, most severe first.
+- `summary.counts` always has every tier, most severe first.
 - `summary.blocking` is `null`, `"disqualifying"` (unsupported or broken), `"needs_review"` (low_match), or `"unchecked"` (unverified or snippet_only under `--strict`).
 - `results` is in input order. `id` is the input `id` as a string, or `#<index>` when there is none.
 - `quoted` and `topical` are 0 to 1: the share of the claim's word sequences, and of its distinctive words, found on the page.
@@ -186,14 +184,11 @@ cited fetches URLs an agent wrote, so it treats them as hostile. Only `http` and
 
 ## Limitations
 
-These come from how it works, and some were confirmed by running it:
-
 - **Matching is lexical.** It compares words and word sequences. It cannot tell whether a reworded claim means the same as the page, or whether a quoted line means what your artifact says.
 - **Substituted lowercase words pass.** Only numbers, capitalized words and one-letter identifiers are checked as specifics. `"The .demo TLD is recommended for use in documentation"` checked against RFC 2606 (which says `.example`) came back `verified`, because every other word is quoted.
 - **Numbers written as words are not checked.** `"reserves seven top level domain names"` against a page that says "four" came back `low_match`, not `unsupported`. It still blocks, but for the wrong reason.
 - **Negation and qualifiers are invisible.** "did not raise" and "raised" share most of their words.
 - **English-centric.** The capitalized-name heuristic skips the claim's first word, misses lowercase brand names, and can flag an ordinary capitalized word the page does not use.
-- **PDFs and other documents are not read.** They come back `unverified`.
 - **No JavaScript.** Pages that render in the browser come back thin (`unverified`) unless their meta description or JSON-LD carries the claim, or the Wayback copy has text.
 - **Pages change.** A claim can be `verified` today and gone tomorrow, or vice versa. Every annotated entry carries `verified_at`, and `--cache` pins a run to the pages it saw.
 - **Wayback is a fallback, not an oracle.** The closest capture may be older or newer than the page you cited.

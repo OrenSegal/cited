@@ -1,6 +1,6 @@
 # Methodology
 
-This is the reference material an agent (or a human wiring this into a pipeline) should read before trusting the tiering output — the reasoning, not just the mechanism, per the skill's own workflow note.
+This is the reference material an agent (or a human wiring this into a pipeline) should read before trusting the tiering output — the reasoning, not just the mechanism.
 
 ## Why containment, not similarity
 

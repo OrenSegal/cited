@@ -14,7 +14,7 @@ Verify cited claims with the `cited` tool before anything ships. Arguments: `$AR
 3. Report from the JSON, not from memory:
    - one line: "N of M claims verified against source", then the counts per tier;
    - a table of every claim that is not `verified`: id, tier, and the `note` (which names the missing numbers or names);
-   - exit code meaning: 0 nothing blocking, 1 something blocking, 2 the claims file was invalid (show the listed problems), 3 offline cache miss, 4 internal error.
+   - what `summary.exit_code` means (`cited --help` lists the codes). An invalid claims file prints no JSON: show the problems cited listed on stderr.
 4. For each `unsupported` or `broken` claim, propose a fix: drop it, find a source that says it, or tighten the wording to what the page says. For `low_match`, say a human must check it against the page. Do not edit the artifact unless asked.
 
 Do not mark a claim verified yourself, and do not re-run with weaker flags (`--allow-private-addresses`, `--allow-host`) to make something pass.

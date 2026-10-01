@@ -29,7 +29,7 @@ Do **not** reach for this to fact-check claims that don't cite a specific URL �
    - `unsupported` — the page loaded fine and the claim is **not on it**, or the claim's numbers or capitalized names (an amount, an investor, a product) are not on it. This is the fabrication signal. Drop the claim or find a claim the page actually supports.
    - `broken` — the source URL doesn't resolve, even via the Wayback Machine fallback. Drop it.
    - `unverified` — the claim was never checked: the page was a PDF or other binary, too thin to read (a JavaScript app, a consent wall), too large to read in full, or missing from an `--offline` cache. Check it by hand, or cite an HTML page that carries the same fact.
-4. The script exits 1 if anything is `unsupported`, `broken`, or `low_match` (with `--strict`, also `unverified` and `snippet_only`), and 2 if the claims file is invalid, with every problem listed. Wire that into a CI gate or a pre-ship check if your artifact pipeline has one. A run that fails only on `low_match` is waiting on human review, not proven wrong.
+4. A non-zero exit means do not ship as is; `cited --help` lists what each code means. Wire that into a CI gate or a pre-ship check if your artifact pipeline has one. A run that fails only on `low_match` is waiting on human review, not proven wrong.
 5. On the shipped artifact, disclose the result: "N of M claims verified against source." That single line is what turns a report into something a skeptical reader can trust without redoing your research.
 
 ## What this does and doesn't prove

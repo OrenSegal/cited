@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased
+
+### Changed
+
+- `cited --help` lists the exit codes and the `Retry-After` cap.
+- Page decoding and text extraction moved to `page_text.py`, and retries, caching and the Wayback lookup to `fetcher.py`. Behavior is unchanged.
+- The README tier table, exit codes, option defaults and JSON example, and the blocked networks in SECURITY.md, are checked against the code by `tests/test_docs.py`.
+
 ## 0.3.0
 
 ### Security
