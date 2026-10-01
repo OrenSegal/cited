@@ -6,3 +6,4 @@ __pycache__/
 
 # claude plugin eval output
 evals/results/
+.ruff_cache/
