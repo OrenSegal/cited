@@ -6,4 +6,4 @@ extend-exclude = ["evals/results"]
 select = ["E", "F", "W", "I", "B"]
 
 [lint.isort]
-known-first-party = ["conftest", "safe_fetch", "tiering_core", "verify_claims"]
+known-first-party = ["conftest", "fetcher", "page_text", "safe_fetch", "tiering_core", "verify_claims"]

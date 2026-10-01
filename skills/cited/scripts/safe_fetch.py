@@ -1,4 +1,4 @@
-"""Guarded HTTP(S) fetching and text extraction for cited. Standard library only.
+"""Guarded HTTP(S) fetching for cited. Standard library only.
 
 The claims file cited reads is untrusted input: an agent wrote it, and a
 claim's source_url can point anywhere. This module is the only place cited
@@ -18,8 +18,8 @@ hop:
 - Size: at most `max_bytes` of body are read; the result says if it was cut.
 - Time: `timeout` bounds the connect and each socket read, and the whole
   body read is abandoned once `timeout` seconds of wall clock have passed.
-- Content is parsed, never executed: HTML goes through html.parser, JSON-LD
-  through json.loads. No script runs, no external resource is loaded.
+- Content is never executed: page_text parses the body; no script runs and
+  no external resource is loaded.
 
 Opting out (`allow_private`, `allow_hosts`, `use_env_proxy`) is explicit and
 documented in SECURITY.md.
@@ -27,11 +27,9 @@ documented in SECURITY.md.
 
 from __future__ import annotations
 
-import codecs
 import functools
 import http.client
 import ipaddress
-import json
 import re
 import socket
 import ssl
@@ -41,15 +39,15 @@ import urllib.parse
 import urllib.request
 from dataclasses import dataclass, field
 from email.utils import parsedate_to_datetime
-from html.parser import HTMLParser
 from typing import Any
+
+from page_text import body_text, classify
 
 __all__ = [
     "BlockedURL",
     "FetchPolicy",
     "FetchResult",
     "USER_AGENT",
-    "extract_html_text",
     "fetch_page",
     "is_blocked_ip",
     "url_problem",
@@ -93,8 +91,6 @@ class FetchResult:
     extra: dict[str, Any] = field(default_factory=dict)
 
 
-# ── Address policy ──────────────────────────────────────────────────────────
-#
 # Explicit lists rather than ipaddress.is_global, whose answers have shifted
 # between Python releases. Sources: IANA IPv4/IPv6 Special-Purpose Address
 # Registries (anything not globally reachable), plus multicast.
@@ -308,8 +304,6 @@ def _build_opener(policy: FetchPolicy) -> urllib.request.OpenerDirector:
     return opener
 
 
-# ── Body reading and decoding ───────────────────────────────────────────────
-
 def _read_capped(response, max_bytes: int, deadline: float, timeout: float) -> tuple[bytes, bool]:
     chunks: list[bytes] = []
     total = 0
@@ -324,133 +318,6 @@ def _read_capped(response, max_bytes: int, deadline: float, timeout: float) -> t
         total += len(chunk)
     return b"".join(chunks)[:max_bytes], True
 
-
-_BOMS = ((codecs.BOM_UTF8, "utf-8-sig"), (codecs.BOM_UTF16_LE, "utf-16"), (codecs.BOM_UTF16_BE, "utf-16"))
-_META_CHARSET = re.compile(rb"""<meta[^>]+charset\s*=\s*["']?\s*([A-Za-z0-9_.:-]+)""", re.IGNORECASE)
-
-
-def _text_codec(name: str | None) -> str | None:
-    if not name:
-        return None
-    try:
-        info = codecs.lookup(name.strip().strip("\"'"))
-    except LookupError:
-        return None
-    return info.name if getattr(info, "_is_text_encoding", True) else None
-
-
-def decode_body(body: bytes, header_charset: str | None) -> str:
-    """Decode with BOM > Content-Type charset > <meta charset> > UTF-8 >
-    windows-1252. Unknown or non-text codec names are skipped, never fatal."""
-    for bom, codec in _BOMS:
-        if body.startswith(bom):
-            return body.decode(codec, errors="replace")
-    meta = _META_CHARSET.search(body[:4096])
-    for candidate in (header_charset, meta.group(1).decode("ascii", "ignore") if meta else None):
-        codec = _text_codec(candidate)
-        if codec:
-            return body.decode(codec, errors="replace")
-    try:
-        return body.decode("utf-8")
-    except UnicodeDecodeError:
-        return body.decode("cp1252", errors="replace")
-
-
-def _classify(mime: str, body: bytes) -> str:
-    head = body[:1024].lstrip().lower()
-    if body.startswith(b"%PDF-") or mime == "application/pdf":
-        return "pdf"
-    if mime in ("text/html", "application/xhtml+xml", "text/xml", "application/xml") or mime.endswith("+xml"):
-        return "html"
-    if mime.startswith("text/") or mime in ("application/json", "application/ld+json") or mime.endswith("+json"):
-        return "text"
-    if not mime:
-        if head.startswith((b"<!doctype html", b"<html")) or b"<body" in head:
-            return "html"
-        return "binary" if b"\x00" in body[:4096] else "text"
-    return "binary"
-
-
-# ── Text extraction ─────────────────────────────────────────────────────────
-
-_META_KEYS = frozenset({
-    "description", "og:description", "og:title", "twitter:description", "twitter:title",
-})
-
-
-def _ldjson_strings(raw: str) -> str:
-    """Every string value in a JSON-LD block, joined. Iterative, so a hostile
-    deeply-nested document cannot exhaust the recursion limit."""
-    try:
-        parsed = json.loads(raw)
-    except (ValueError, RecursionError):
-        return raw
-    found: list[str] = []
-    stack: list[Any] = [parsed]
-    while stack:
-        node = stack.pop()
-        if isinstance(node, str):
-            found.append(node)
-        elif isinstance(node, dict):
-            stack.extend(reversed(list(node.values())))
-        elif isinstance(node, list):
-            stack.extend(reversed(node))
-    return " ".join(found)
-
-
-class _TextExtractor(HTMLParser):
-    """Visible text, plus meta descriptions and JSON-LD string values —
-    the latter two are what a JS-rendered page still exposes to a plain
-    fetch, and are often enough to verify a claim that would otherwise be
-    Unverified."""
-
-    def __init__(self) -> None:
-        super().__init__()
-        self._chunks: list[str] = []
-        self._skip = False
-        self._in_ldjson = False
-
-    def handle_starttag(self, tag: str, attrs: Any) -> None:
-        if tag == "script":
-            attr_map = dict(attrs)
-            self._in_ldjson = (attr_map.get("type") or "").strip().lower() == "application/ld+json"
-            self._skip = not self._in_ldjson
-        elif tag == "style":
-            self._skip = True
-        elif tag == "meta":
-            attr_map = dict(attrs)
-            key = (attr_map.get("name") or attr_map.get("property") or "").strip().lower()
-            content = attr_map.get("content")
-            if key in _META_KEYS and content:
-                self._chunks.append(f" {content} ")
-
-    def handle_endtag(self, tag: str) -> None:
-        if tag in ("script", "style"):
-            self._skip = False
-            self._in_ldjson = False
-
-    def handle_data(self, data: str) -> None:
-        if self._in_ldjson:
-            self._chunks.append(f" {_ldjson_strings(data)} ")
-        elif not self._skip:
-            self._chunks.append(data)
-
-    def text(self) -> str:
-        return re.sub(r"\s+", " ", "".join(self._chunks)).strip()
-
-
-def extract_html_text(html: str) -> str:
-    parser = _TextExtractor()
-    try:
-        parser.feed(html)
-        parser.close()
-    except Exception:  # noqa: BLE001 — a hostile page must degrade, not crash the run
-        stripped = re.sub(r"(?is)<(script|style)\b.*?</\1\s*>", " ", html)
-        return re.sub(r"\s+", " ", re.sub(r"<[^>]+>", " ", stripped)).strip()
-    return parser.text()
-
-
-# ── Fetch ───────────────────────────────────────────────────────────────────
 
 def _retry_after_seconds(value: str | None) -> float | None:
     if not value:
@@ -511,12 +378,6 @@ def fetch_page(url: str, timeout: float, policy: FetchPolicy | None = None) -> F
         return FetchResult(error=f"fetch failed: {type(exc).__name__}: {exc}", transient=True)
 
     raw_type = headers.get("Content-Type") or ""
-    mime = headers.get_content_type() if raw_type else ""
-    kind = _classify(mime, body)
-    result = FetchResult(status=status, final_url=final_url, content_type=raw_type,
-                         kind=kind, truncated=truncated)
-    if kind in ("pdf", "binary"):
-        return result
-    decoded = decode_body(body, headers.get_content_charset() if raw_type else None)
-    result.text = extract_html_text(decoded) if kind == "html" else re.sub(r"\s+", " ", decoded).strip()
-    return result
+    kind = classify(headers.get_content_type() if raw_type else "", body)
+    return FetchResult(status=status, final_url=final_url, content_type=raw_type, kind=kind, truncated=truncated,
+                       text=body_text(kind, body, headers.get_content_charset() if raw_type else None))

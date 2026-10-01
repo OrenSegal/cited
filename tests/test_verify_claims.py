@@ -1,12 +1,8 @@
+from fetcher import bot_walled_host, canonicalize_for_fetch, is_challenge_page
+from page_text import _TextExtractor
 from safe_fetch import FetchPolicy, FetchResult
 from tiering_core import TIER_BROKEN, TIER_SNIPPET_ONLY, TIER_UNVERIFIED
-from verify_claims import (
-    _TextExtractor,
-    bot_walled_host,
-    canonicalize_for_fetch,
-    check_source,
-    is_challenge_page,
-)
+from verify_claims import check_source
 
 
 def test_bot_walled_host_matches_exact_and_subdomain():
@@ -73,7 +69,7 @@ def test_text_extractor_captures_ldjson_string_values():
 
 
 class StubFetcher:
-    """Stands in for verify_claims.Fetcher: canned live and archived results."""
+    """Stands in for fetcher.Fetcher: canned live and archived results."""
 
     def __init__(self, live, archived=None, use_wayback=True):
         self.live = live

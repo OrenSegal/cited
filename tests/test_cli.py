@@ -11,7 +11,9 @@ import pytest
 
 import verify_claims as vc
 from conftest import fake_dns
-from safe_fetch import FetchPolicy, decode_body
+from fetcher import Fetcher, HostThrottle
+from page_text import decode_body
+from safe_fetch import FetchPolicy, fetch_page
 
 FILLER = " ".join(["The annual report also covers staffing, offices and product plans."] * 6)
 CLAIM = "Example Corporation reported revenue of 12 million dollars in fiscal 2025."
@@ -264,7 +266,7 @@ def test_offline_cache_miss_exits_3(tmp_path, capsys):
 
 def test_transient_failures_are_not_cached(tmp_path, server):
     server.add("/flaky", 503, body="busy")
-    fetcher = vc.Fetcher(policy=FetchPolicy(allow_private=True), retries=0, per_host_delay=0,
+    fetcher = Fetcher(policy=FetchPolicy(allow_private=True), retries=0, per_host_delay=0,
                          cache_dir=tmp_path / "c")
     assert fetcher.page(server.url("/flaky")).status == 503
     assert list(tmp_path.glob("c/*.json")) == []
@@ -273,11 +275,11 @@ def test_transient_failures_are_not_cached(tmp_path, server):
 def test_corrupt_cache_file_is_ignored(tmp_path, server):
     server.add("/", body=PAGE)
     cache = tmp_path / "c"
-    first = vc.Fetcher(policy=FetchPolicy(allow_private=True), retries=0, per_host_delay=0, cache_dir=cache)
+    first = Fetcher(policy=FetchPolicy(allow_private=True), retries=0, per_host_delay=0, cache_dir=cache)
     first.page(server.url("/"))
     (entry,) = cache.glob("*.json")
     entry.write_text("{corrupt", encoding="utf-8")
-    second = vc.Fetcher(policy=FetchPolicy(allow_private=True), retries=0, per_host_delay=0, cache_dir=cache)
+    second = Fetcher(policy=FetchPolicy(allow_private=True), retries=0, per_host_delay=0, cache_dir=cache)
     assert second.page(server.url("/")).status == 200
     assert server.hits["/"] == 2
 
@@ -310,7 +312,7 @@ def _flaky_route(server, path, failures, status=503, headers=None):
 
 def _fetcher(sleeps, **kw):
     kw.setdefault("retries", 2)
-    return vc.Fetcher(policy=kw.pop("policy", FetchPolicy(allow_private=True)), per_host_delay=0,
+    return Fetcher(policy=kw.pop("policy", FetchPolicy(allow_private=True)), per_host_delay=0,
                       sleep=sleeps.append, **kw)
 
 
@@ -365,7 +367,7 @@ def test_bot_walled_429_is_not_retried(server):
 
 def test_blocked_url_is_not_retried():
     sleeps: list[float] = []
-    result = vc.Fetcher(per_host_delay=0, sleep=sleeps.append).page("http://127.0.0.1:9/")
+    result = Fetcher(per_host_delay=0, sleep=sleeps.append).page("http://127.0.0.1:9/")
     assert result.blocked and sleeps == []
 
 
@@ -374,7 +376,7 @@ def test_blocked_url_is_not_retried():
 def test_host_throttle_spaces_requests_to_the_same_host():
     now = [100.0]
     sleeps: list[float] = []
-    throttle = vc.HostThrottle(1.5, clock=lambda: now[0], sleep=sleeps.append)
+    throttle = HostThrottle(1.5, clock=lambda: now[0], sleep=sleeps.append)
     throttle.wait("a.test")
     throttle.wait("b.test")
     throttle.wait("a.test")
@@ -384,7 +386,7 @@ def test_host_throttle_spaces_requests_to_the_same_host():
 
 def test_host_throttle_off_when_delay_is_zero():
     sleeps: list[float] = []
-    throttle = vc.HostThrottle(0, sleep=sleeps.append)
+    throttle = HostThrottle(0, sleep=sleeps.append)
     for _ in range(3):
         throttle.wait("a.test")
     assert sleeps == []
@@ -405,16 +407,15 @@ def test_same_url_is_fetched_once_per_run(tmp_path, server, capsys):
 def test_cp1252_page_without_charset_is_decoded(server):
     body = ("<p>" + "Café crème – naïve résumé " * 20 + "</p>").encode("cp1252")
     server.add("/w", body=body, headers={"Content-Type": "text/html"})
-    status, text = vc.fetch_text(server.url("/w"), 3, FetchPolicy(allow_private=True))
-    assert status == 200
-    assert "Café crème – naïve" in text
+    result = fetch_page(server.url("/w"), 3, FetchPolicy(allow_private=True))
+    assert result.status == 200
+    assert "Café crème – naïve" in result.text
 
 
 def test_meta_charset_is_used_when_the_header_has_none(server):
     body = ('<meta charset="iso-8859-7"><p>' + "Αθήνα " * 60 + "</p>").encode("iso-8859-7")
     server.add("/g", body=body, headers={"Content-Type": "text/html"})
-    _, text = vc.fetch_text(server.url("/g"), 3, FetchPolicy(allow_private=True))
-    assert "Αθήνα" in text
+    assert "Αθήνα" in fetch_page(server.url("/g"), 3, FetchPolicy(allow_private=True)).text
 
 
 @pytest.mark.parametrize("body, header, expected", [
@@ -431,11 +432,11 @@ def test_decode_body(body, header, expected):
 def test_pdf_and_binary_are_not_parsed(server):
     server.add("/p", body=b"%PDF-1.4 whatever", headers={"Content-Type": "application/octet-stream"})
     server.add("/z", body=b"PK\x03\x04\x00\x00", headers={"Content-Type": "application/zip"})
-    fetcher = vc.Fetcher(policy=FetchPolicy(allow_private=True), retries=0, per_host_delay=0)
+    fetcher = Fetcher(policy=FetchPolicy(allow_private=True), retries=0, per_host_delay=0)
     pdf, zipped = fetcher.page(server.url("/p")), fetcher.page(server.url("/z"))
     assert (pdf.kind, pdf.text) == ("pdf", "")
     assert (zipped.kind, zipped.text) == ("binary", "")
-    verdict = vc.check_source(server.url("/z"), CLAIM, vc.Fetcher(policy=FetchPolicy(allow_private=True),
+    verdict = vc.check_source(server.url("/z"), CLAIM, Fetcher(policy=FetchPolicy(allow_private=True),
                                                                     retries=0, per_host_delay=0,
                                                                     use_wayback=False))
     assert verdict.tier == "unverified"
@@ -444,6 +445,6 @@ def test_pdf_and_binary_are_not_parsed(server):
 
 def test_plain_text_pages_are_checked(server):
     server.add("/t", body=f"{FILLER}\n{CLAIM}\n", headers={"Content-Type": "text/plain; charset=utf-8"})
-    verdict = vc.check_source(server.url("/t"), CLAIM, vc.Fetcher(policy=FetchPolicy(allow_private=True),
+    verdict = vc.check_source(server.url("/t"), CLAIM, Fetcher(policy=FetchPolicy(allow_private=True),
                                                                     retries=0, per_host_delay=0))
     assert verdict.tier == "verified"

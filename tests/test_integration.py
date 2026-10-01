@@ -11,6 +11,7 @@ import sys
 
 import pytest
 
+import fetcher
 import verify_claims as vc
 from conftest import FIXTURES, fake_dns
 
@@ -102,7 +103,7 @@ def test_default_policy_refuses_the_local_fixture_server(tmp_path, server, capsy
 def local_wayback(server, monkeypatch):
     """Point the Wayback availability API at the fixture server. Snapshots
     on the API's own host are accepted, as they would be on archive.org."""
-    monkeypatch.setattr(vc, "WAYBACK_API", server.url("/wayback/available?url="))
+    monkeypatch.setattr(fetcher, "WAYBACK_API", server.url("/wayback/available?url="))
     return server
 
 
@@ -217,7 +218,7 @@ def test_archived_error_page_is_not_used(tmp_path, local_wayback, capsys):
     ("https://archive.org/details/thing", "https://archive.org/details/thing"),
 ])
 def test_raw_snapshot_url(given, raw):
-    assert vc.raw_snapshot_url(given) == raw
+    assert fetcher.raw_snapshot_url(given) == raw
 
 
 def test_version_matches_the_plugin_manifests():
