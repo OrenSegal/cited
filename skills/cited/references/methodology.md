@@ -29,6 +29,12 @@ Several major platforms (Reddit's new UI, X/Twitter, LinkedIn, Glassdoor, Indeed
 
 A page can go down, get paywalled, or get restructured between when a claim was researched and when it's verified. Before giving up and marking a source `broken`, the script checks the Wayback Machine for an archived copy close to the original fetch — a claim verified against an honest archived snapshot is still a claim verified against the page as it was published, which is strictly better evidence than nothing, and is disclosed as such in the verification note rather than silently presented as a live-page check.
 
+The capture is fetched raw (the `id_` form of the snapshot URL). The default form wraps the page in the archive's toolbar, and for a PDF it returns only that wrapper, which would be scored as the source and make an honest claim look fabricated. Captures the archive recorded as an error page are skipped.
+
+## Why "unverified" is its own tier
+
+`unsupported` means the page was read and the claim is not on it. That is only true if the whole page was read. When it was not (a PDF or other binary, a page too thin to hold any claim, a page cut off at `--max-bytes` with the claim not in the part read, or an `--offline` cache miss) the result is `unverified`: nothing was checked, so nothing is alleged. It does not block by default, because it is not evidence of fabrication; `--strict` blocks on it for pipelines that must not ship anything unchecked.
+
 ## What this cannot do
 
 It cannot tell you the source page itself is honest — a scam page can host a false claim just as easily as a true one, and containment-checking will happily mark a false-but-actually-quoted claim as `verified`. It cannot tell you a correctly quoted line means what your artifact's surrounding text implies it means (context can be stripped in quotation). And a `verified_at` timestamp is exactly that — a point-in-time check, not a guarantee the page hasn't changed since. Disclose the limitation on anything you ship; don't oversell the tier as more than it is.
