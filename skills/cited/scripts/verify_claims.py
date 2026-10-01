@@ -164,7 +164,7 @@ class _TextExtractor(HTMLParser):
 
 def fetch_text(url: str, timeout: int) -> tuple[int | None, str]:
     request = urllib.request.Request(
-        canonicalize_for_fetch(url), headers={"User-Agent": "Mozilla/5.0 (verify-before-ship)"}
+        canonicalize_for_fetch(url), headers={"User-Agent": "Mozilla/5.0 (cited)"}
     )
     try:
         with urllib.request.urlopen(request, timeout=timeout) as response:
@@ -174,7 +174,7 @@ def fetch_text(url: str, timeout: int) -> tuple[int | None, str]:
     except urllib.error.HTTPError as exc:
         return exc.code, ""
     except Exception as exc:
-        print(f"[verify-before-ship] fetch failed for {url}: {exc}", file=sys.stderr)
+        print(f"[cited] fetch failed for {url}: {exc}", file=sys.stderr)
         return None, ""
     parser = _TextExtractor()
     parser.feed(raw)
@@ -189,7 +189,7 @@ def fetch_wayback(url: str, timeout: int) -> tuple[str, str, str]:
     try:
         request = urllib.request.Request(
             WAYBACK_API + urllib.parse.quote(url, safe=""),
-            headers={"User-Agent": "Mozilla/5.0 (verify-before-ship)"},
+            headers={"User-Agent": "Mozilla/5.0 (cited)"},
         )
         with urllib.request.urlopen(request, timeout=timeout) as response:
             info = json.load(response)
@@ -197,7 +197,7 @@ def fetch_wayback(url: str, timeout: int) -> tuple[str, str, str]:
         snapshot_url = closest.get("url") if closest.get("available") else ""
         snapshot_date = str(closest.get("timestamp", ""))[:8]
     except Exception as exc:
-        print(f"[verify-before-ship] wayback lookup failed for {url}: {exc}", file=sys.stderr)
+        print(f"[cited] wayback lookup failed for {url}: {exc}", file=sys.stderr)
         return "", "", ""
     if not snapshot_url:
         return "", "", ""

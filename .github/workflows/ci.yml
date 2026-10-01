@@ -18,3 +18,7 @@ jobs:
         run: pip install pytest
       - name: Run tests
         run: python3 -m pytest tests/ -v
+      - name: Validate plugin manifest
+        run: |
+          npm install -g @anthropic-ai/claude-code
+          claude plugin validate .

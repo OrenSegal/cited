@@ -1,10 +1,10 @@
 ---
-name: verify-before-ship
+name: cited
 description: Before an agent ships any artifact that cites sources (a report, a lead list, a research summary, a changelog claim), re-fetch every cited source and confirm the claim is actually there — not just self-graded by the model that wrote it. Use when an agent's output includes claims attributed to a URL and those claims need to be trustworthy before a human sees them.
 license: MIT
 ---
 
-# Verify Before Ship
+# cited
 
 The core failure mode this defends against: an agent writes a plausible-sounding claim, attributes it to a source it read (or half-read, or invented from a search snippet), and grades its own confidence — using the same model that might have made the claim up. Self-grading cannot catch self-invention.
 
@@ -21,7 +21,7 @@ Do **not** reach for this to fact-check claims that don't cite a specific URL �
 ## Workflow
 
 1. Produce your artifact's claims as a flat JSON array: `[{"id": "...", "claim": "...", "source_url": "..."}, ...]`. `id` is whatever your artifact uses to key this claim back to its full record (a lead's name, a section heading — anything stable).
-2. Run `python3 scripts/verify_claims.py claims.json --annotate-out verified.json`.
+2. From this skill directory, run `python3 scripts/verify_claims.py claims.json --annotate-out verified.json`.
 3. Read the tier written back onto each entry:
    - `verified` — substantially quoted from the live (or archived) page. Ship it.
    - `low_match` — the claim shares vocabulary with the page but is not quoted from it. This is not evidence the claim is on the page: a made-up claim about a real company also shares the company's name with its site. Do not ship it as is. A human must check the claim against the page, or you tighten the claim to wording the page actually contains and re-run.
