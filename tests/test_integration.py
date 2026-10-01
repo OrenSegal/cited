@@ -115,7 +115,7 @@ def _wayback_answer(server, snapshot_path):
 
 def test_dead_page_is_checked_against_the_wayback_snapshot(tmp_path, local_wayback, capsys):
     server = local_wayback
-    server.add("/web/20240115093000/press.html", body=(SITE / "archived.html").read_bytes())
+    server.add("/web/20240115093000id_/press.html", body=(SITE / "archived.html").read_bytes())
     _wayback_answer(server, "/web/20240115093000/press.html")
     path = tmp_path / "c.json"
     path.write_text(json.dumps([{
@@ -136,7 +136,7 @@ def test_dead_page_is_checked_against_the_wayback_snapshot(tmp_path, local_wayba
 def test_thin_page_falls_back_to_wayback(tmp_path, local_wayback, capsys):
     server = local_wayback
     server.add("/app", body=(SITE / "thin.html").read_bytes())
-    server.add("/web/1/app", body=(SITE / "archived.html").read_bytes())
+    server.add("/web/1id_/app", body=(SITE / "archived.html").read_bytes())
     _wayback_answer(server, "/web/1/app")
     path = tmp_path / "c.json"
     path.write_text(json.dumps([{"claim": "Contoso Labs published 12 peer-reviewed papers in 2025.",
@@ -171,3 +171,50 @@ def test_bot_walled_host_is_snippet_only(tmp_path, server, capsys):
     assert result["tier"] == "snippet_only"
     assert "x.com blocks automated fetch" in result["note"]
     assert code == vc.EXIT_OK
+
+
+def test_archived_pdf_is_unverified_not_unsupported(tmp_path, local_wayback, capsys):
+    # Regression: without id_, Wayback answers a PDF capture with a ~250-char
+    # HTML toolbar page, which was checked as the source and the claim
+    # reported absent (a false fabrication signal).
+    server = local_wayback
+    server.add("/web/20260110222031/doc.pdf", body="<p>" + "Wayback Machine captures toolbar " * 10 + "</p>")
+    server.add("/web/20260110222031id_/doc.pdf", body=b"%PDF-1.4\n", headers={"Content-Type": "application/pdf"})
+    _wayback_answer(server, "/web/20260110222031/doc.pdf")
+    path = tmp_path / "c.json"
+    path.write_text(json.dumps([{"claim": "Four domain names are reserved.",
+                                 "source_url": server.url("/doc.pdf")}]), encoding="utf-8")
+    code = vc.main([str(path), "--json"] + LOCAL)
+    result = json.loads(capsys.readouterr().out)["results"][0]
+    assert result["tier"] == "unverified"
+    assert "Wayback copy (20240115) is a PDF" in result["note"]
+    assert server.hits["/web/20260110222031/doc.pdf"] == 0
+    assert code == vc.EXIT_OK
+
+
+def test_archived_error_page_is_not_used(tmp_path, local_wayback, capsys):
+    server = local_wayback
+    for snapshot in ("/web/2024/gone", "/web/2024id_/gone"):
+        server.add(snapshot, body="<p>" + "Page not found on this site. " * 20 + "</p>")
+    server.add("/wayback/available", body=json.dumps({"archived_snapshots": {"closest": {
+        "available": True, "status": "404", "url": server.url("/web/2024/gone"), "timestamp": "2024"}}}),
+        headers={"Content-Type": "application/json"})
+    path = tmp_path / "c.json"
+    path.write_text(json.dumps([{"claim": "Anything.", "source_url": server.url("/gone")}]), encoding="utf-8")
+    vc.main([str(path), "--json"] + LOCAL)
+    result = json.loads(capsys.readouterr().out)["results"][0]
+    assert result["tier"] == "broken"
+    assert server.hits["/web/2024/gone"] == server.hits["/web/2024id_/gone"] == 0
+
+
+@pytest.mark.parametrize("given, raw", [
+    ("http://web.archive.org/web/20260110222031/https://a.test/x.pdf",
+     "http://web.archive.org/web/20260110222031id_/https://a.test/x.pdf"),
+    ("https://web.archive.org/web/2024im_/https://a.test/",
+     "https://web.archive.org/web/2024id_/https://a.test/"),
+    ("https://web.archive.org/web/2024id_/https://a.test/",
+     "https://web.archive.org/web/2024id_/https://a.test/"),
+    ("https://archive.org/details/thing", "https://archive.org/details/thing"),
+])
+def test_raw_snapshot_url(given, raw):
+    assert vc.raw_snapshot_url(given) == raw

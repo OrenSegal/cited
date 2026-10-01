@@ -39,6 +39,7 @@ import hashlib
 import json
 import os
 import random
+import re
 import sys
 import tempfile
 import threading
@@ -262,6 +263,9 @@ class Fetcher:
                 _log(f"wayback lookup for {url} returned unreadable JSON: {exc}")
                 return "", "", None
             snapshot_url = closest.get("url") if closest.get("available") else ""
+            capture_status = str(closest.get("status") or "")
+            if capture_status and not capture_status.startswith(("2", "3")):
+                snapshot_url = ""  # the archive captured an error page; it proves nothing
             lookup = {
                 "snapshot_url": snapshot_url if isinstance(snapshot_url, str) else "",
                 "date": str(closest.get("timestamp", ""))[:8],
@@ -270,7 +274,7 @@ class Fetcher:
         snapshot_url = lookup.get("snapshot_url") or ""
         if not snapshot_url or not self._is_archive_url(snapshot_url):
             return "", "", None
-        return snapshot_url, lookup.get("date") or "", self.page(snapshot_url)
+        return snapshot_url, lookup.get("date") or "", self.page(raw_snapshot_url(snapshot_url))
 
     def _is_archive_url(self, snapshot_url: str) -> bool:
         """A snapshot must live on the archive we asked (archive.org, or the
@@ -319,6 +323,17 @@ class Fetcher:
 
 
 _RESULT_FIELDS = {f.name for f in dataclasses.fields(FetchResult)}
+_SNAPSHOT_PATH = re.compile(r"^(/web/\d{1,14})(?:[a-z]{2}_)?/")
+
+
+def raw_snapshot_url(snapshot_url: str) -> str:
+    """The Wayback URL for the capture as it was served, without the
+    archive's toolbar or frame. Without `id_`, a PDF capture comes back as a
+    short HTML wrapper whose text ("Wayback Machine ... captures ...") would
+    be checked as if it were the page, and the claim reported absent."""
+    parts = urllib.parse.urlsplit(snapshot_url)
+    path = _SNAPSHOT_PATH.sub(r"\1id_/", parts.path, count=1)
+    return parts._replace(path=path).geturl()
 
 
 # ── Per-claim decision ──────────────────────────────────────────────────────
@@ -370,6 +385,12 @@ def check_source(url: str, claim: str, fetcher: Fetcher) -> Verdict:
             suffix = f"checked against Wayback archive ({snapshot_date or 'undated'}), live page {why}"
             return Verdict(tier, f"{note} — {suffix}" if note else suffix, quoted, topical,
                            checked_against="wayback", snapshot_url=snapshot_url, **base)
+        if live_failed and archived is not None and archived.status is not None and archived.status < 400 \
+                and archived.kind in ("pdf", "binary"):
+            what = "a PDF" if archived.kind == "pdf" else "non-text content"
+            return Verdict(TIER_UNVERIFIED, f"Live page unreachable; the Wayback copy ({snapshot_date or 'undated'}) "
+                           f"is {what}, which cited does not read. Check this claim against it by hand.",
+                           snapshot_url=snapshot_url, **base)
 
     if status == 429:
         return Verdict(TIER_SNIPPET_ONLY, "Source rate-limited the fetch (HTTP 429) and no archived copy "
