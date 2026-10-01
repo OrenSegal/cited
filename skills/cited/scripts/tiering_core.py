@@ -1,4 +1,4 @@
-"""Containment-based claim/source tiering — the reusable core of verify-before-ship.
+"""Containment-based claim/source tiering — the reusable core of cited.
 
 Adapted from signal-scout's `signal_scout_core.py` (github.com/OrenSegal/signal-scout),
 generalized to work on any (claim, source page text) pair instead of a specific
