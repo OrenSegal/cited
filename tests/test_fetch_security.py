@@ -147,7 +147,7 @@ def test_redirect_to_ftp_is_not_followed(server):
     listener = socket.socket()
     listener.bind(("127.0.0.1", 0))
     listener.listen(1)
-    listener.settimeout(3)
+    listener.settimeout(1)
     ftp_port = listener.getsockname()[1]
 
     def accept():
@@ -166,7 +166,7 @@ def test_redirect_to_ftp_is_not_followed(server):
         time.sleep(0.2)
     finally:
         listener.close()
-        thread.join(timeout=4)
+        thread.join(timeout=2)
     assert accepted == []
 
 

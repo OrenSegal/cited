@@ -1,8 +1,3 @@
-import pathlib
-import sys
-
-sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent / "skills" / "cited" / "scripts"))
-
 from tiering_core import (
     TIER_BROKEN,
     TIER_DISQUALIFYING,

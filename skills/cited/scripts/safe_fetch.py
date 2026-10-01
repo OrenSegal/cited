@@ -1,0 +1,522 @@
+"""Guarded HTTP(S) fetching and text extraction for cited. Standard library only.
+
+The claims file cited reads is untrusted input: an agent wrote it, and a
+claim's source_url can point anywhere. This module is the only place cited
+touches the network, and it enforces, for every request and every redirect
+hop:
+
+- Scheme: only http and https. No file:, ftp:, data:, or anything else.
+- Address: the hostname is resolved, and the connection is refused if ANY
+  resolved address is loopback, private, link-local (cloud metadata),
+  carrier-grade NAT, multicast, reserved, or otherwise not public. The check
+  runs inside the connection itself, on the exact addresses being connected
+  to, so a DNS answer that changes between check and connect (rebinding)
+  cannot slip through. Numeric hosts in non-canonical spellings
+  (2130706433, 0x7f000001, 0177.0.0.1, 127.1) are refused outright.
+- Redirects: each hop is re-checked against the same rules; at most
+  `max_redirects` hops are followed.
+- Size: at most `max_bytes` of body are read; the result says if it was cut.
+- Time: `timeout` bounds the connect and each socket read, and the whole
+  body read is abandoned once `timeout` seconds of wall clock have passed.
+- Content is parsed, never executed: HTML goes through html.parser, JSON-LD
+  through json.loads. No script runs, no external resource is loaded.
+
+Opting out (`allow_private`, `allow_hosts`, `use_env_proxy`) is explicit and
+documented in SECURITY.md.
+"""
+
+from __future__ import annotations
+
+import codecs
+import functools
+import http.client
+import ipaddress
+import json
+import re
+import socket
+import ssl
+import time
+import urllib.error
+import urllib.parse
+import urllib.request
+from dataclasses import dataclass, field
+from email.utils import parsedate_to_datetime
+from html.parser import HTMLParser
+from typing import Any
+
+__all__ = [
+    "BlockedURL",
+    "FetchPolicy",
+    "FetchResult",
+    "USER_AGENT",
+    "extract_html_text",
+    "fetch_page",
+    "is_blocked_ip",
+    "url_problem",
+]
+
+VERSION = "0.3.0"
+USER_AGENT = f"Mozilla/5.0 (compatible; cited/{VERSION}; +https://github.com/OrenSegal/cited)"
+ALLOWED_SCHEMES = ("http", "https")
+RETRYABLE_STATUSES = frozenset({429, 500, 502, 503, 504})
+
+
+class BlockedURL(Exception):
+    """A URL or address the fetch policy refuses to contact."""
+
+
+class RedirectLimit(Exception):
+    """More redirects than the policy allows."""
+
+
+@dataclass(frozen=True)
+class FetchPolicy:
+    allow_private: bool = False                    # disables the address check entirely
+    allow_hosts: frozenset[str] = frozenset()      # hostnames exempt from the address check
+    max_bytes: int = 5_000_000
+    max_redirects: int = 5
+    use_env_proxy: bool = False                    # honor HTTP(S)_PROXY; weakens the address check
+
+
+@dataclass
+class FetchResult:
+    status: int | None = None   # HTTP status, or None if no response was received
+    text: str = ""              # extracted text (HTML) or decoded body (plain text)
+    final_url: str = ""         # URL after redirects
+    content_type: str = ""
+    kind: str = ""              # "html" | "text" | "pdf" | "binary" | ""
+    error: str = ""
+    blocked: bool = False       # refused by policy; never retried, never sent to an archive
+    truncated: bool = False     # body exceeded max_bytes; text covers only the first part
+    transient: bool = False     # worth retrying
+    retry_after: float | None = None
+    extra: dict[str, Any] = field(default_factory=dict)
+
+
+# ── Address policy ──────────────────────────────────────────────────────────
+#
+# Explicit lists rather than ipaddress.is_global, whose answers have shifted
+# between Python releases. Sources: IANA IPv4/IPv6 Special-Purpose Address
+# Registries (anything not globally reachable), plus multicast.
+
+_BLOCKED_V4 = tuple(ipaddress.ip_network(n) for n in (
+    "0.0.0.0/8", "10.0.0.0/8", "100.64.0.0/10", "127.0.0.0/8", "169.254.0.0/16",
+    "172.16.0.0/12", "192.0.0.0/24", "192.0.2.0/24", "192.88.99.0/24", "192.168.0.0/16",
+    "198.18.0.0/15", "198.51.100.0/24", "203.0.113.0/24", "224.0.0.0/4", "240.0.0.0/4",
+))
+_BLOCKED_V6 = tuple(ipaddress.ip_network(n) for n in (
+    "::/96",            # unspecified, loopback, deprecated IPv4-compatible
+    "64:ff9b:1::/48",   # local-use NAT64
+    "100::/64",         # discard-only
+    "2001::/23",        # IETF protocol assignments, incl. Teredo (2001::/32)
+    "2001:db8::/32",    # documentation
+    "2002::/16",        # 6to4 (can embed any IPv4, including private)
+    "3fff::/20",        # documentation
+    "5f00::/16",        # SRv6 SIDs
+    "fc00::/7",         # unique local (incl. AWS IMDS fd00:ec2::254)
+    "fe80::/10",        # link-local
+    "fec0::/10",        # deprecated site-local
+    "ff00::/8",         # multicast
+))
+_NAT64 = ipaddress.ip_network("64:ff9b::/96")
+_BLOCKED_NAMES = ("localhost",)
+_BLOCKED_SUFFIXES = (".localhost", ".local", ".internal", ".home.arpa")
+
+
+def is_blocked_ip(ip: ipaddress.IPv4Address | ipaddress.IPv6Address) -> bool:
+    """True if `ip` is not a public unicast address."""
+    if isinstance(ip, ipaddress.IPv6Address):
+        if ip.ipv4_mapped is not None:
+            return is_blocked_ip(ip.ipv4_mapped)
+        if ip in _NAT64:  # DNS64 synthesizes these for public IPv4 sites; judge the embedded v4
+            return is_blocked_ip(ipaddress.IPv4Address(int(ip) & 0xFFFFFFFF))
+        return any(ip in net for net in _BLOCKED_V6)
+    return any(ip in net for net in _BLOCKED_V4)
+
+
+def _parse_ip(text: str) -> ipaddress.IPv4Address | ipaddress.IPv6Address | None:
+    try:
+        return ipaddress.ip_address(text.split("%", 1)[0])
+    except ValueError:
+        return None
+
+
+def _is_noncanonical_numeric_host(host: str) -> bool:
+    """2130706433, 0x7f000001, 0177.0.0.1, 127.1: inet_aton accepts these and
+    many resolvers turn them into an address. There is no reason for a
+    citation to use one, so they are refused rather than interpreted."""
+    if _parse_ip(host) is not None:
+        return False
+    if not re.fullmatch(r"[0-9a-fx.]+", host) or not re.search(r"\d", host):
+        return False
+    try:
+        socket.inet_aton(host)
+    except OSError:
+        return False
+    return True
+
+
+def _host_exempt(host: str, policy: FetchPolicy) -> bool:
+    return policy.allow_private or host.rstrip(".").lower() in policy.allow_hosts
+
+
+def url_problem(url: str, policy: FetchPolicy) -> str | None:
+    """Why `url` must not be fetched under `policy`, or None if it may be.
+    Checks scheme, host presence and literal addresses. Hostnames are
+    resolved and checked at connect time, not here."""
+    try:
+        parsed = urllib.parse.urlsplit(url)
+        port = parsed.port
+    except ValueError as exc:
+        return f"malformed URL ({exc})"
+    scheme = parsed.scheme.lower()
+    if scheme not in ALLOWED_SCHEMES:
+        return f"URL scheme {scheme + ':' if scheme else '(none)'} is not allowed; only http and https are fetched"
+    host = (parsed.hostname or "").rstrip(".")
+    if not host:
+        return "URL has no host"
+    if port == 0:
+        return "URL has an invalid port"
+    if _host_exempt(host, policy):
+        return None
+    if host in _BLOCKED_NAMES or host.endswith(_BLOCKED_SUFFIXES):
+        return f"host {host} is a local name"
+    ip = _parse_ip(host)
+    if ip is not None and is_blocked_ip(ip):
+        return f"address {ip} is not a public address"
+    if _is_noncanonical_numeric_host(host):
+        return f"host {host} is a non-canonical numeric address"
+    return None
+
+
+def _resolve_checked(host: str, port: int, policy: FetchPolicy) -> list[tuple]:
+    infos = socket.getaddrinfo(host, port, 0, socket.SOCK_STREAM)
+    if not _host_exempt(host, policy):
+        for info in infos:
+            ip = _parse_ip(str(info[4][0]))
+            if ip is None or is_blocked_ip(ip):
+                raise BlockedURL(f"host {host} resolves to non-public address {info[4][0]}")
+    return infos
+
+
+def _guarded_create_connection(address, timeout=socket._GLOBAL_DEFAULT_TIMEOUT,
+                               source_address=None, *, policy: FetchPolicy) -> socket.socket:
+    """Drop-in for socket.create_connection that refuses non-public
+    addresses and connects only to the addresses it checked."""
+    host, port = address
+    last_error: OSError | None = None
+    for family, socktype, proto, _, sockaddr in _resolve_checked(host, port, policy):
+        sock = socket.socket(family, socktype, proto)
+        try:
+            if timeout is not socket._GLOBAL_DEFAULT_TIMEOUT:
+                sock.settimeout(timeout)
+            if source_address:
+                sock.bind(source_address)
+            sock.connect(sockaddr)
+            return sock
+        except OSError as exc:
+            last_error = exc
+            sock.close()
+    raise last_error or OSError(f"no addresses for {host}")
+
+
+def _guarded(base: type, policy: FetchPolicy) -> type:
+    class Guarded(base):  # type: ignore[misc, valid-type]
+        def __init__(self, *args: Any, **kwargs: Any) -> None:
+            super().__init__(*args, **kwargs)
+            # http.client opens every socket through this attribute (3.10-3.13).
+            self._create_connection = functools.partial(_guarded_create_connection, policy=policy)
+
+    return Guarded
+
+
+class _GuardedHTTPHandler(urllib.request.HTTPHandler):
+    def __init__(self, policy: FetchPolicy) -> None:
+        super().__init__()
+        self._conn_class = _guarded(http.client.HTTPConnection, policy)
+
+    def http_open(self, req):
+        return self.do_open(self._conn_class, req)
+
+
+class _GuardedHTTPSHandler(urllib.request.HTTPSHandler):
+    def __init__(self, policy: FetchPolicy) -> None:
+        super().__init__(context=ssl.create_default_context())
+        self._conn_class = _guarded(http.client.HTTPSConnection, policy)
+
+    def https_open(self, req):
+        return self.do_open(self._conn_class, req, context=self._context)
+
+
+class _GuardedRedirectHandler(urllib.request.HTTPRedirectHandler):
+    max_redirections = 1_000  # our own hop count below is the real limit
+
+    def __init__(self, policy: FetchPolicy) -> None:
+        super().__init__()
+        self._policy = policy
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        hops = getattr(req, "_cited_hops", 0) + 1
+        if hops > self._policy.max_redirects:
+            raise RedirectLimit(f"more than {self._policy.max_redirects} redirects")
+        problem = url_problem(newurl, self._policy)
+        if problem is None and self._policy.use_env_proxy:
+            problem = _resolution_problem(newurl, self._policy)
+        if problem:
+            raise BlockedURL(f"redirect to {newurl} refused: {problem}")
+        new = super().redirect_request(req, fp, code, msg, headers, newurl)
+        if new is not None:
+            new._cited_hops = hops
+        return new
+
+
+def _resolution_problem(url: str, policy: FetchPolicy) -> str | None:
+    """Proxy mode only: the proxy connects, so the best we can do is resolve
+    the target ourselves first. A rebinding DNS answer can still differ."""
+    parsed = urllib.parse.urlsplit(url)
+    host = parsed.hostname or ""
+    port = parsed.port or (443 if parsed.scheme.lower() == "https" else 80)
+    try:
+        _resolve_checked(host, port, policy)
+    except BlockedURL as exc:
+        return str(exc)
+    except OSError:
+        return None  # let the proxy report resolution failures
+    return None
+
+
+def _build_opener(policy: FetchPolicy) -> urllib.request.OpenerDirector:
+    # Built by hand: build_opener() always adds FileHandler, FTPHandler and
+    # DataHandler, which is exactly the surface this module exists to remove.
+    opener = urllib.request.OpenerDirector()
+    if policy.use_env_proxy:
+        handlers: list[urllib.request.BaseHandler] = [
+            urllib.request.ProxyHandler(),
+            urllib.request.HTTPHandler(),
+            urllib.request.HTTPSHandler(context=ssl.create_default_context()),
+        ]
+    else:
+        handlers = [_GuardedHTTPHandler(policy), _GuardedHTTPSHandler(policy)]
+    handlers += [
+        urllib.request.UnknownHandler(),
+        urllib.request.HTTPDefaultErrorHandler(),
+        _GuardedRedirectHandler(policy),
+        urllib.request.HTTPErrorProcessor(),
+    ]
+    for handler in handlers:
+        opener.add_handler(handler)
+    return opener
+
+
+# ── Body reading and decoding ───────────────────────────────────────────────
+
+def _read_capped(response, max_bytes: int, deadline: float, timeout: float) -> tuple[bytes, bool]:
+    chunks: list[bytes] = []
+    total = 0
+    read = getattr(response, "read1", response.read)
+    while total <= max_bytes:
+        if time.monotonic() > deadline:
+            raise TimeoutError(f"response not complete within the {timeout:g}s timeout")
+        chunk = read(65_536)
+        if not chunk:
+            return b"".join(chunks), False
+        chunks.append(chunk)
+        total += len(chunk)
+    return b"".join(chunks)[:max_bytes], True
+
+
+_BOMS = ((codecs.BOM_UTF8, "utf-8-sig"), (codecs.BOM_UTF16_LE, "utf-16"), (codecs.BOM_UTF16_BE, "utf-16"))
+_META_CHARSET = re.compile(rb"""<meta[^>]+charset\s*=\s*["']?\s*([A-Za-z0-9_.:-]+)""", re.IGNORECASE)
+
+
+def _text_codec(name: str | None) -> str | None:
+    if not name:
+        return None
+    try:
+        info = codecs.lookup(name.strip().strip("\"'"))
+    except LookupError:
+        return None
+    return info.name if getattr(info, "_is_text_encoding", True) else None
+
+
+def decode_body(body: bytes, header_charset: str | None) -> str:
+    """Decode with BOM > Content-Type charset > <meta charset> > UTF-8 >
+    windows-1252. Unknown or non-text codec names are skipped, never fatal."""
+    for bom, codec in _BOMS:
+        if body.startswith(bom):
+            return body.decode(codec, errors="replace")
+    meta = _META_CHARSET.search(body[:4096])
+    for candidate in (header_charset, meta.group(1).decode("ascii", "ignore") if meta else None):
+        codec = _text_codec(candidate)
+        if codec:
+            return body.decode(codec, errors="replace")
+    try:
+        return body.decode("utf-8")
+    except UnicodeDecodeError:
+        return body.decode("cp1252", errors="replace")
+
+
+def _classify(mime: str, body: bytes) -> str:
+    head = body[:1024].lstrip().lower()
+    if body.startswith(b"%PDF-") or mime == "application/pdf":
+        return "pdf"
+    if mime in ("text/html", "application/xhtml+xml", "text/xml", "application/xml") or mime.endswith("+xml"):
+        return "html"
+    if mime.startswith("text/") or mime in ("application/json", "application/ld+json") or mime.endswith("+json"):
+        return "text"
+    if not mime:
+        if head.startswith((b"<!doctype html", b"<html")) or b"<body" in head:
+            return "html"
+        return "binary" if b"\x00" in body[:4096] else "text"
+    return "binary"
+
+
+# ── Text extraction ─────────────────────────────────────────────────────────
+
+_META_KEYS = frozenset({
+    "description", "og:description", "og:title", "twitter:description", "twitter:title",
+})
+
+
+def _ldjson_strings(raw: str) -> str:
+    """Every string value in a JSON-LD block, joined. Iterative, so a hostile
+    deeply-nested document cannot exhaust the recursion limit."""
+    try:
+        parsed = json.loads(raw)
+    except (ValueError, RecursionError):
+        return raw
+    found: list[str] = []
+    stack: list[Any] = [parsed]
+    while stack:
+        node = stack.pop()
+        if isinstance(node, str):
+            found.append(node)
+        elif isinstance(node, dict):
+            stack.extend(reversed(list(node.values())))
+        elif isinstance(node, list):
+            stack.extend(reversed(node))
+    return " ".join(found)
+
+
+class _TextExtractor(HTMLParser):
+    """Visible text, plus meta descriptions and JSON-LD string values —
+    the latter two are what a JS-rendered page still exposes to a plain
+    fetch, and are often enough to verify a claim that would otherwise be
+    Unverified."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self._chunks: list[str] = []
+        self._skip = False
+        self._in_ldjson = False
+
+    def handle_starttag(self, tag: str, attrs: Any) -> None:
+        if tag == "script":
+            attr_map = dict(attrs)
+            self._in_ldjson = (attr_map.get("type") or "").strip().lower() == "application/ld+json"
+            self._skip = not self._in_ldjson
+        elif tag == "style":
+            self._skip = True
+        elif tag == "meta":
+            attr_map = dict(attrs)
+            key = (attr_map.get("name") or attr_map.get("property") or "").strip().lower()
+            content = attr_map.get("content")
+            if key in _META_KEYS and content:
+                self._chunks.append(f" {content} ")
+
+    def handle_endtag(self, tag: str) -> None:
+        if tag in ("script", "style"):
+            self._skip = False
+            self._in_ldjson = False
+
+    def handle_data(self, data: str) -> None:
+        if self._in_ldjson:
+            self._chunks.append(f" {_ldjson_strings(data)} ")
+        elif not self._skip:
+            self._chunks.append(data)
+
+    def text(self) -> str:
+        return re.sub(r"\s+", " ", "".join(self._chunks)).strip()
+
+
+def extract_html_text(html: str) -> str:
+    parser = _TextExtractor()
+    try:
+        parser.feed(html)
+        parser.close()
+    except Exception:  # noqa: BLE001 — a hostile page must degrade, not crash the run
+        stripped = re.sub(r"(?is)<(script|style)\b.*?</\1\s*>", " ", html)
+        return re.sub(r"\s+", " ", re.sub(r"<[^>]+>", " ", stripped)).strip()
+    return parser.text()
+
+
+# ── Fetch ───────────────────────────────────────────────────────────────────
+
+def _retry_after_seconds(value: str | None) -> float | None:
+    if not value:
+        return None
+    value = value.strip()
+    if value.isdigit():
+        return float(value)
+    try:
+        when = parsedate_to_datetime(value)
+    except (TypeError, ValueError, IndexError):
+        return None
+    if when is None:
+        return None
+    return max(0.0, when.timestamp() - time.time())
+
+
+def fetch_page(url: str, timeout: float, policy: FetchPolicy | None = None) -> FetchResult:
+    """One guarded GET. Never raises for network, policy or content problems;
+    they come back in FetchResult.error."""
+    policy = policy or FetchPolicy()
+    problem = url_problem(url, policy)
+    if problem is None and policy.use_env_proxy:
+        problem = _resolution_problem(url, policy)
+    if problem:
+        return FetchResult(error=f"refused: {problem}", blocked=True)
+
+    request = urllib.request.Request(url, headers={
+        "User-Agent": USER_AGENT,
+        "Accept": "text/html,application/xhtml+xml,text/plain;q=0.9,*/*;q=0.5",
+        "Accept-Encoding": "identity",
+    })
+    deadline = time.monotonic() + timeout
+    try:
+        with _build_opener(policy).open(request, timeout=timeout) as response:
+            status = response.status
+            final_url = response.geturl()
+            headers = response.headers
+            body, truncated = _read_capped(response, policy.max_bytes, deadline, timeout)
+    except BlockedURL as exc:
+        return FetchResult(error=f"refused: {exc}", blocked=True)
+    except RedirectLimit as exc:
+        return FetchResult(error=f"redirect not followed: {exc}")
+    except urllib.error.HTTPError as exc:
+        retry_after = _retry_after_seconds(exc.headers.get("Retry-After") if exc.headers else None)
+        exc.close()
+        if 300 <= exc.code < 400:
+            return FetchResult(error=f"redirect not followed: {exc.reason}")
+        return FetchResult(status=exc.code, final_url=str(getattr(exc, "filename", "") or url),
+                           error=f"HTTP {exc.code}", transient=exc.code in RETRYABLE_STATUSES,
+                           retry_after=retry_after)
+    except urllib.error.URLError as exc:
+        if isinstance(exc.reason, BlockedURL):
+            return FetchResult(error=f"refused: {exc.reason}", blocked=True)
+        return FetchResult(error=f"connection failed: {exc.reason}", transient=True)
+    except (TimeoutError, socket.timeout) as exc:
+        return FetchResult(error=f"timed out: {exc}", transient=True)
+    except (OSError, http.client.HTTPException, ValueError) as exc:
+        return FetchResult(error=f"fetch failed: {type(exc).__name__}: {exc}", transient=True)
+
+    raw_type = headers.get("Content-Type") or ""
+    mime = headers.get_content_type() if raw_type else ""
+    kind = _classify(mime, body)
+    result = FetchResult(status=status, final_url=final_url, content_type=raw_type,
+                         kind=kind, truncated=truncated)
+    if kind in ("pdf", "binary"):
+        return result
+    decoded = decode_body(body, headers.get_content_charset() if raw_type else None)
+    result.text = extract_html_text(decoded) if kind == "html" else re.sub(r"\s+", " ", decoded).strip()
+    return result

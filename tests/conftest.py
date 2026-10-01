@@ -69,7 +69,8 @@ class FixtureServer:
         self._httpd = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Handler)
         self._httpd.daemon_threads = True
         self.port = self._httpd.server_address[1]
-        self._thread = threading.Thread(target=self._httpd.serve_forever, daemon=True)
+        self._thread = threading.Thread(
+            target=self._httpd.serve_forever, kwargs={"poll_interval": 0.05}, daemon=True)
 
     @property
     def total_hits(self) -> int:

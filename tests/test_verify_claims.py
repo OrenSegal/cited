@@ -1,10 +1,5 @@
-import pathlib
-import sys
-from unittest.mock import patch
-
-sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent / "skills" / "cited" / "scripts"))
-
-from tiering_core import TIER_BROKEN, TIER_SNIPPET_ONLY
+from safe_fetch import FetchPolicy, FetchResult
+from tiering_core import TIER_BROKEN, TIER_SNIPPET_ONLY, TIER_UNVERIFIED
 from verify_claims import (
     _TextExtractor,
     bot_walled_host,
@@ -77,37 +72,77 @@ def test_text_extractor_captures_ldjson_string_values():
     assert "Acme raised a Series A" in parser.text()
 
 
+class StubFetcher:
+    """Stands in for verify_claims.Fetcher: canned live and archived results."""
+
+    def __init__(self, live, archived=None, use_wayback=True):
+        self.live = live
+        self.archived = archived
+        self.use_wayback = use_wayback
+        self.policy = FetchPolicy()
+        self.wayback_calls = 0
+
+    def page(self, url):
+        return self.live
+
+    def wayback(self, url):
+        self.wayback_calls += 1
+        if self.archived is None:
+            return "", "", None
+        return "https://web.archive.org/x", "20260101", self.archived
+
+
+ARCHIVED = FetchResult(status=200, kind="html", text="The claim text is right here. " * 10)
+
+
 def test_check_source_falls_back_to_wayback_when_live_fetch_fails():
-    with patch("verify_claims.fetch_text", return_value=(None, "")), patch(
-        "verify_claims.fetch_wayback",
-        return_value=("https://web.archive.org/x", "20260101", "The claim text is right here."),
-    ):
-        tier, note, quoted, topical = check_source("https://example.com", "claim text", 10)
-    assert "Wayback archive" in note
-    assert tier != TIER_BROKEN
+    verdict = check_source("https://example.com", "claim text", StubFetcher(FetchResult(error="timed out"), ARCHIVED))
+    assert "Wayback archive" in verdict.note
+    assert verdict.tier != TIER_BROKEN
+    assert verdict.checked_against == "wayback"
 
 
 def test_check_source_broken_when_live_and_wayback_both_fail():
-    with patch("verify_claims.fetch_text", return_value=(None, "")), patch(
-        "verify_claims.fetch_wayback", return_value=("", "", "")
-    ):
-        tier, note, quoted, topical = check_source("https://example.com", "claim text", 10)
-    assert tier == TIER_BROKEN
+    verdict = check_source("https://example.com", "claim text", StubFetcher(FetchResult(error="timed out")))
+    assert verdict.tier == TIER_BROKEN
 
 
 def test_check_source_snippet_only_on_rate_limit_with_no_archive():
-    with patch("verify_claims.fetch_text", return_value=(429, "")), patch(
-        "verify_claims.fetch_wayback", return_value=("", "", "")
-    ):
-        tier, note, quoted, topical = check_source("https://example.com", "claim text", 10)
-    assert tier == TIER_SNIPPET_ONLY
-    assert "rate-limited" in note.lower()
+    verdict = check_source("https://example.com", "claim text", StubFetcher(FetchResult(status=429)))
+    assert verdict.tier == TIER_SNIPPET_ONLY
+    assert "rate-limited" in verdict.note.lower()
 
 
 def test_check_source_snippet_only_for_bot_walled_domain_403():
-    with patch("verify_claims.fetch_text", return_value=(403, "")), patch(
-        "verify_claims.fetch_wayback", return_value=("", "", "")
-    ):
-        tier, note, quoted, topical = check_source("https://reddit.com/r/x", "claim text", 10)
-    assert tier == TIER_SNIPPET_ONLY
-    assert "reddit.com" in note
+    verdict = check_source("https://reddit.com/r/x", "claim text", StubFetcher(FetchResult(status=403)))
+    assert verdict.tier == TIER_SNIPPET_ONLY
+    assert "reddit.com" in verdict.note
+
+
+def test_check_source_blocked_url_is_broken_and_never_sent_to_wayback():
+    stub = StubFetcher(FetchResult(error="refused: address 10.0.0.1 is not a public address", blocked=True), ARCHIVED)
+    verdict = check_source("http://10.0.0.1/", "claim text", stub)
+    assert verdict.tier == TIER_BROKEN
+    assert stub.wayback_calls == 0
+
+
+def test_check_source_pdf_is_unverified_not_unsupported():
+    verdict = check_source("https://example.com/a.pdf", "claim text",
+                           StubFetcher(FetchResult(status=200, kind="pdf", content_type="application/pdf")))
+    assert verdict.tier == TIER_UNVERIFIED
+    assert "PDF" in verdict.note
+
+
+def test_check_source_truncated_page_cannot_prove_absence():
+    page = FetchResult(status=200, kind="html", truncated=True, text="Unrelated filler content about gardening. " * 20)
+    verdict = check_source("https://example.com", "Acme raised a $12M Series A led by Sequoia", StubFetcher(page))
+    assert verdict.tier == TIER_UNVERIFIED
+    assert "not proven" in verdict.note
+
+
+def test_bot_walled_host_ignores_port_and_userinfo():
+    assert bot_walled_host("https://user@www.reddit.com:443/r/foo") == "reddit.com"
+
+
+def test_canonicalize_keeps_port():
+    assert canonicalize_for_fetch("https://reddit.com:8443/r/foo") == "https://old.reddit.com:8443/r/foo"
