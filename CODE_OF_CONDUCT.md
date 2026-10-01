@@ -6,7 +6,7 @@ In short: be respectful, assume good faith, criticize code and ideas rather than
 
 ## Reporting
 
-Report unacceptable behavior to the maintainer, [@OrenSegal](https://github.com/OrenSegal), through a private channel on GitHub. Reports are kept confidential. Do not use the security advisory form for conduct reports; it is for vulnerabilities only.
+Report unacceptable behavior to the maintainer, [@OrenSegal](https://github.com/OrenSegal), through a [private advisory](https://github.com/OrenSegal/cited/security/advisories/new). Reports are kept confidential.
 
 ## Enforcement
 
