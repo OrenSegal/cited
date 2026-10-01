@@ -63,7 +63,7 @@ The test suite makes no real network calls.
 - **Network code goes through `safe_fetch.fetch_page`.** Do not make requests with `urllib.request`, `http.client` or raw sockets anywhere else; the address checks only cover that path. A change that loosens the policy must update SECURITY.md in the same pull request.
 - **`check_source` is the decision tree.** If you change its branching, cover the new branch in `test_verify_claims.py` with a `StubFetcher`.
 - **Scoring stays pure.** `tiering_core.py` takes strings and returns numbers and tiers, so it is trivial to test.
-- **The output is an interface.** Exit codes and the JSON report (`schema_version` 1) are documented in the README, and `test_docs.py` fails if the two drift. Adding a field is fine; renaming or removing one, or changing an exit code, needs a `schema_version` bump and a CHANGELOG entry.
+- **The output is an interface.** Exit codes and the JSON report are documented in the README, and `test_docs.py` fails if the two drift. Adding a field is fine; renaming or removing one, or changing an exit code, needs a `schema_version` bump and a CHANGELOG entry.
 - **Containment, not truth.** cited reports whether a claim is on the cited page. Do not add logic that infers a claim is true. See `skills/cited/references/methodology.md`.
 
 ## Evals

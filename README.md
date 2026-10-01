@@ -105,7 +105,7 @@ An invalid file is rejected before anything is fetched, with every problem liste
 
 ## JSON report
 
-`--json` prints one object. Schema version 1; fields are only added in later versions, and a breaking change bumps `schema_version`.
+`--json` prints one object. Fields are only added in later versions; a breaking change bumps `schema_version`.
 
 ```json
 {

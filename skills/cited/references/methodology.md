@@ -23,7 +23,7 @@ A broken link (`404`, DNS failure, invalid URL) is a research hygiene problem �
 
 ## Why platform 403s don't fail the run
 
-Several major platforms (Reddit's new UI, X/Twitter, LinkedIn, Glassdoor, Indeed) return `403`/`429` to any scripted fetch, including completely legitimate, live pages — this is an anti-bot wall, not evidence the page is dead or the claim is fabricated. Treating it as `broken` would fail real, honest runs purely because the source happens to live on a platform that blocks bots. Those cases fall through to `snippet_only`: not verified, but explicitly *not* penalized as if it were a dead link or a fabrication — the distinction is disclosed in the note, and it's a judgment call left to whoever is shipping the artifact whether the original discovery snippet is trustworthy enough to keep.
+Several major platforms (such as Reddit's new UI, X/Twitter and LinkedIn) return `403`/`429` to any scripted fetch, including completely legitimate, live pages — this is an anti-bot wall, not evidence the page is dead or the claim is fabricated. Treating it as `broken` would fail real, honest runs purely because the source happens to live on a platform that blocks bots. Those cases fall through to `snippet_only`: not verified, but explicitly *not* penalized as if it were a dead link or a fabrication — the distinction is disclosed in the note, and it's a judgment call left to whoever is shipping the artifact whether the original discovery snippet is trustworthy enough to keep.
 
 ## Why the Wayback Machine fallback exists
 
