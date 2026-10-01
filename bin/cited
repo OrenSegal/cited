@@ -1,0 +1,24 @@
+#!/bin/sh
+# cited: check that each claim's words, numbers and names are on the page it
+# cites. On PATH for Claude Code's Bash tool while the cited plugin is enabled;
+# also runnable straight from a checkout. Arguments go to verify_claims.py:
+#   cited claims.json [--json] [--strict] [--cache DIR [--offline]] ...
+#   cited --help
+self=$0
+while [ -L "$self" ]; do
+  link=$(readlink "$self")
+  case $link in
+    /*) self=$link ;;
+    *) self=$(dirname "$self")/$link ;;
+  esac
+done
+root=$(cd "$(dirname "$self")/.." && pwd -P) || exit 2
+script="$root/skills/cited/scripts/verify_claims.py"
+for py in ${CITED_PYTHON:-} python3 python; do
+  if command -v "$py" >/dev/null 2>&1 \
+      && "$py" -c 'import sys; sys.exit(sys.version_info < (3, 10))' 2>/dev/null; then
+    exec "$py" "$script" "$@"
+  fi
+done
+echo "cited: needs Python 3.10 or newer on PATH (or set CITED_PYTHON)" >&2
+exit 2
