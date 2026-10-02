@@ -53,7 +53,7 @@ __all__ = [
     "url_problem",
 ]
 
-VERSION = "0.3.0"
+VERSION = "0.3.1"
 USER_AGENT = f"Mozilla/5.0 (compatible; cited/{VERSION}; +https://github.com/OrenSegal/cited)"
 ALLOWED_SCHEMES = ("http", "https")
 RETRYABLE_STATUSES = frozenset({429, 500, 502, 503, 504})
