@@ -1,10 +1,4 @@
-"""Containment-based claim/source tiering — the reusable core of cited.
-
-Adapted from signal-scout's `signal_scout_core.py` (github.com/OrenSegal/signal-scout),
-generalized to work on any (claim, source page text) pair instead of a specific
-prospect schema. No project-specific fields — this module doesn't know or care
-what domain the claim came from.
-"""
+"""Scores a claim against the text of the page it cites and assigns a tier. Pure: no I/O."""
 
 from __future__ import annotations
 
@@ -36,14 +30,31 @@ TIER_DISQUALIFYING = frozenset({TIER_BROKEN, TIER_UNSUPPORTED})
 # page, which is also what a fabricated claim about a real entity looks like.
 TIER_NEEDS_REVIEW = frozenset({TIER_LOW_MATCH})
 
+# Tiers where the claim was never actually checked against page text. They do
+# not block by default (the source may simply block bots or need JavaScript),
+# but `strict` mode treats them as blocking.
+TIER_UNCHECKED = frozenset({TIER_UNVERIFIED, TIER_SNIPPET_ONLY})
 
-def blocking_reason(counts: dict[str, int]) -> str | None:
-    """Return why a run with these per-tier counts must not ship, or None."""
+# Every tier, in severity order (most severe first). Used for stable output.
+TIERS = (TIER_UNSUPPORTED, TIER_BROKEN, TIER_LOW_MATCH, TIER_UNVERIFIED, TIER_SNIPPET_ONLY, TIER_VERIFIED)
+
+
+def blocking_reason(counts: dict[str, int], strict: bool = False) -> str | None:
+    """Return why a run with these per-tier counts must not ship, or None.
+
+    "disqualifying" (unsupported/broken) wins over "needs_review" (low_match),
+    which wins over "unchecked" (unverified/snippet_only, strict mode only)."""
     if any(counts.get(t, 0) for t in TIER_DISQUALIFYING):
         return "disqualifying"
     if any(counts.get(t, 0) for t in TIER_NEEDS_REVIEW):
         return "needs_review"
+    if strict and any(counts.get(t, 0) for t in TIER_UNCHECKED):
+        return "unchecked"
     return None
+
+
+def is_blocking(tier: str, strict: bool = False) -> bool:
+    return tier in TIER_DISQUALIFYING or tier in TIER_NEEDS_REVIEW or (strict and tier in TIER_UNCHECKED)
 
 
 # ── Claim/page containment ─────────────────────────────────────────────────
@@ -115,8 +126,8 @@ def _letter_identifiers(text: str) -> set[str]:
     """Capitalized word followed by a single capital letter: "Series B",
     "Class A". The one-letter part is the fact, and it's too short to pass
     the name check on its own."""
-    return {f"{w} {l}" for w, l in re.findall(r"\b([A-Z][a-z]+) ([A-Z])\b", str(text or ""))
-            if l != "I"}  # the pronoun, as in "Yesterday I"
+    return {f"{w} {letter}" for w, letter in re.findall(r"\b([A-Z][a-z]+) ([A-Z])\b", str(text or ""))
+            if letter != "I"}  # the pronoun, as in "Yesterday I"
 
 
 def missing_specifics(claim: str, page_text: str) -> list[str]:

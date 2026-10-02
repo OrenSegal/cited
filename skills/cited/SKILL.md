@@ -21,14 +21,15 @@ Do **not** reach for this to fact-check claims that don't cite a specific URL �
 ## Workflow
 
 1. Produce your artifact's claims as a flat JSON array: `[{"id": "...", "claim": "...", "source_url": "..."}, ...]`. `id` is whatever your artifact uses to key this claim back to its full record (a lead's name, a section heading — anything stable).
-2. From this skill directory, run `python3 scripts/verify_claims.py claims.json --annotate-out verified.json`.
+2. Run `cited claims.json --annotate-out verified.json`. The `cited` command is on the Bash tool's PATH while the plugin is enabled; without the plugin, run `python3 scripts/verify_claims.py` from this skill directory with the same arguments. Add `--json` for a machine-readable report on stdout, and `cited --help` lists every flag.
 3. Read the tier written back onto each entry:
    - `verified` — substantially quoted from the live (or archived) page. Ship it.
    - `low_match` — the claim shares vocabulary with the page but is not quoted from it. This is not evidence the claim is on the page: a made-up claim about a real company also shares the company's name with its site. Do not ship it as is. A human must check the claim against the page, or you tighten the claim to wording the page actually contains and re-run.
    - `snippet_only` — the platform blocked automated fetching (Reddit, X, LinkedIn, etc.) and no archived copy exists. Your call whether the original discovery snippet is trustworthy enough to keep; disclose the unverified status if you do.
    - `unsupported` — the page loaded fine and the claim is **not on it**, or the claim's numbers or capitalized names (an amount, an investor, a product) are not on it. This is the fabrication signal. Drop the claim or find a claim the page actually supports.
    - `broken` — the source URL doesn't resolve, even via the Wayback Machine fallback. Drop it.
-4. The script exits 1 if anything is `unsupported`, `broken`, or `low_match`. Wire that into a CI gate or a pre-ship check if your artifact pipeline has one. A run that fails only on `low_match` is waiting on human review, not proven wrong.
+   - `unverified` — the claim was never checked: the page was a PDF or other binary, too thin to read (a JavaScript app, a consent wall), too large to read in full, or missing from an `--offline` cache. Check it by hand, or cite an HTML page that carries the same fact.
+4. A non-zero exit means do not ship as is; `cited --help` lists what each code means. Wire that into a CI gate or a pre-ship check if your artifact pipeline has one. A run that fails only on `low_match` is waiting on human review, not proven wrong.
 5. On the shipped artifact, disclose the result: "N of M claims verified against source." That single line is what turns a report into something a skeptical reader can trust without redoing your research.
 
 ## What this does and doesn't prove

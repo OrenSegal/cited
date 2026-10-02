@@ -1,0 +1,56 @@
+[
+  {
+    "id": "verified-quote",
+    "claim": "Northwind Analytics reported revenue of $48 million for fiscal 2025, up 31% from the prior year.",
+    "source_url": "{base}/article.html",
+    "expect": "verified"
+  },
+  {
+    "id": "low-match-paraphrase",
+    "claim": "Engineers at the company spent spring rebuilding its billing platform.",
+    "source_url": "{base}/article.html",
+    "expect": "low_match"
+  },
+  {
+    "id": "unsupported-wrong-number",
+    "claim": "Northwind Analytics reported revenue of $48 billion for fiscal 2025.",
+    "source_url": "{base}/article.html",
+    "expect": "unsupported"
+  },
+  {
+    "id": "unsupported-invented-investor",
+    "claim": "Northwind Analytics raised a Series C round led by Sequoia.",
+    "source_url": "{base}/article.html",
+    "expect": "unsupported"
+  },
+  {
+    "id": "unverified-thin-page",
+    "claim": "Northwind Analytics reported revenue of $48 million for fiscal 2025.",
+    "source_url": "{base}/thin.html",
+    "expect": "unverified"
+  },
+  {
+    "id": "unverified-pdf",
+    "claim": "Northwind Analytics reported revenue of $48 million for fiscal 2025.",
+    "source_url": "{base}/annual-report.pdf",
+    "expect": "unverified"
+  },
+  {
+    "id": "broken-404",
+    "claim": "Northwind Analytics reported revenue of $48 million for fiscal 2025.",
+    "source_url": "{base}/deleted-page.html",
+    "expect": "broken"
+  },
+  {
+    "id": "snippet-only-rate-limited",
+    "claim": "Northwind Analytics reported revenue of $48 million for fiscal 2025.",
+    "source_url": "{base}/rate-limited.html",
+    "expect": "snippet_only"
+  },
+  {
+    "id": "broken-bad-scheme",
+    "claim": "Northwind Analytics reported revenue of $48 million for fiscal 2025.",
+    "source_url": "file:///etc/passwd",
+    "expect": "broken"
+  }
+]
