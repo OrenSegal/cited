@@ -2,50 +2,227 @@
 
 [![CI](https://github.com/OrenSegal/cited/actions/workflows/ci.yml/badge.svg)](https://github.com/OrenSegal/cited/actions/workflows/ci.yml) [![License: MIT](https://img.shields.io/badge/license-MIT-black)](LICENSE)
 
-A Python script (standard library only) plus a Claude Code `skills/cited/SKILL.md` that tells an agent when and how to run it. You give it a list of claims, each with the URL it cites. It fetches each URL and checks whether the claim's words appear on the page. It flags claims whose text, numbers, or names are not on the cited page, so a person can review or drop them before the artifact ships. It does not run on its own and it does not judge whether a claim is true.
+Part of [sous](https://github.com/OrenSegal/sous): tools for checking what coding agents actually do.
 
-Extracted and generalized from [signal-scout](https://github.com/OrenSegal/signal-scout)'s source-verification mechanism (`verify_sources.py`). Same containment-checking engine, decoupled from that project's lead-gen-specific schema so it works on any `(claim, source_url)` pair: leads, research citations, podcast quotes, changelog claims, competitive battlecards, anything an agent is about to ship with a source attached.
+cited checks that a claim is on the page it cites. You give it a list of claims, each with a source URL. It fetches every URL itself and checks whether the claim's words, numbers and names appear on that page. Claims that are not there are flagged before the artifact carrying them reaches a person.
 
-## Why this exists
+It ships as a Claude Code plugin (a skill, a `/cited:check` command and a `cited` command-line tool), and the same tool runs anywhere with Python 3.10+. Standard library only.
 
-Asking the model that wrote a claim how confident it is does not catch a claim it made up. This checks the page instead: does the claim's text appear on the page it cites, fetched fresh (with a Wayback Machine fallback if the live page is gone).
+It checks containment, not truth. A `verified` claim is on the page; whether the page is right is a separate question.
 
-- **Not a similarity score.** Naive string-similarity metrics score a real quote near-zero on a long page, because they normalize by combined length. This divides only by the claim's length, so page length can't hide or manufacture a match.
-- **Two signals plus a specifics check.** N-gram overlap shows quotation. Vocabulary overlap survives rewording but only shows the claim is on the same topic, so a claim that matches only on vocabulary is `low_match` and fails the run until a person reviews it. Numbers and capitalized names in the claim must appear on the page, or the claim is `unsupported`.
-- **Fair to platforms that block bots.** Reddit, X, LinkedIn, Glassdoor, and Indeed 403/429 legitimate scripted fetches. That's flagged as `snippet_only`, not penalized as a dead link or a fabrication.
-- **Containment, not truth.** It cannot tell you the source page itself is honest. See Limitations below and `skills/cited/references/methodology.md`.
+## Why
+
+Asking the model that wrote a claim how sure it is does not catch a claim it made up. cited checks the page instead, fetched fresh, with a Wayback Machine fallback when the live page is gone or empty.
+
+- **Containment, not similarity.** String-similarity scores divide by the length of both texts, so a real quote on a long page scores near zero. cited divides by the claim alone, so page length can neither hide nor manufacture a match.
+- **Quotation and vocabulary are scored separately.** Shared word sequences show quotation. Shared vocabulary survives rewording but only shows the claim is on the same topic, so a vocabulary-only match is `low_match` and needs a person.
+- **Specifics must be on the page.** Numbers (with their scale, so `$40 billion` does not pass for `$40 million`), capitalized names and identifiers like `Series B` in the claim must all appear on the page, or the claim is `unsupported`.
+- **Fair to sites that block bots.** Sites such as Reddit, X and LinkedIn refuse scripted fetches. Those come back `snippet_only`, not as fabrications or dead links.
 
 ## Install
 
-Drop this directory into your project's `skills/` (or wherever your agent-skills host looks) or point your Claude Code / agent-skills-compatible host at it directly. Requires Python 3.10+, stdlib only. No dependencies to install.
+As a Claude Code plugin:
 
-## Quickstart
-
-```bash
-python3 skills/cited/scripts/verify_claims.py claims.json --annotate-out verified.json
+```text
+/plugin marketplace add OrenSegal/cited
+/plugin install cited@cited
 ```
 
-Input: a flat JSON array:
+This adds the `cited` skill, the `/cited:check` command, and puts `cited` on the Bash tool's PATH while the plugin is enabled.
+
+Without Claude Code, clone the repo and run `bin/cited` (or `python3 skills/cited/scripts/verify_claims.py`). There is nothing to install.
+
+## Use
+
+In Claude Code, ask for it in plain words ("check the citations in report.md before I send it") and the skill takes over, or run the command:
+
+```text
+/cited:check report.md
+/cited:check claims.json --strict
+```
+
+From a shell:
+
+```bash
+cited claims.json                          # table on stdout, exit code says whether to ship
+cited claims.json --json > report.json     # machine-readable report
+cited claims.json --annotate-out out.json  # input written back with a tier on every entry
+cat claims.json | cited -                  # read from stdin
+```
+
+Input is a JSON array. `claim` and `source_url` are required; `id` (string or integer) is optional and used in the report. Other keys are kept.
 
 ```json
 [
-  {"id": "lead-1", "claim": "posted a Staff ML Engineer role three weeks ago", "source_url": "https://example.com/careers"},
-  {"id": "lead-2", "claim": "raised a $12M Series A in March", "source_url": "https://example.com/news"}
+  {"id": "revenue", "claim": "Northwind reported revenue of $48 million for fiscal 2025.", "source_url": "https://example.com/results"},
+  {"id": "funding", "claim": "Northwind raised a $12M Series A in March.", "source_url": "https://example.com/news"}
 ]
 ```
 
-Output: the same array, annotated with `verification_tier`, `verification_note`, and `verified_at` on every entry, plus a console summary. Exits 1 if anything is `unsupported` (claim or its specifics not on the page), `broken` (dead source), or `low_match` (shares vocabulary with the page but is not quoted from it, so a person has to check it).
+An invalid file is rejected before anything is fetched, with every problem listed by its zero-based position (`claims.json[0]: missing required field 'source_url'`).
 
-See `skills/cited/SKILL.md` for the full workflow and tier meanings, `skills/cited/references/methodology.md` for why it's built this way.
+## Tiers
+
+| Tier | Label | Meaning | Blocks by default | Blocks with `--strict` |
+|---|---|---|---|---|
+| `verified` | Verified | The claim is substantially quoted from the live (or archived) page. | no | no |
+| `low_match` | Needs review | The claim shares vocabulary with the page but is not quoted from it. A made-up claim about a real company also shares its name with the company's site, so a person must check it. | yes | yes |
+| `unsupported` | Not on page | The page loaded and is readable, and the claim, or one of its numbers or names, is not on it. The fabrication signal. | yes | yes |
+| `broken` | Broken source | The URL is invalid, refused (see Security), or unreachable, and no archived copy helped. | yes | yes |
+| `unverified` | Unverified | Never checked: the page is a PDF or binary, too thin to read (a JavaScript app, a consent wall), too large to read in full and the claim was not in the part read, or missing from an `--offline` cache. | no | yes |
+| `snippet_only` | Snippet-only | The site blocks scripted fetches (HTTP 403/429, or a bot challenge page) and no archived copy exists. | no | yes |
+
+## Exit codes
+
+| Code | Meaning |
+|---|---|
+| 0 | Nothing blocking. |
+| 1 | At least one blocking claim. |
+| 2 | Usage error or invalid claims file. Nothing was fetched. |
+| 3 | `--offline` and at least one source had no cached copy, and no other code applies. |
+| 4 | An internal error while checking a claim, or `--annotate-out` could not be written, and nothing was blocking. The other claims are still checked and reported. |
+| 130 | Interrupted. |
+
+## Options
+
+| Flag | Default | |
+|---|---|---|
+| `--json` | off | Print the JSON report (below) instead of the table. |
+| `--annotate-out PATH` | | Write the input back with `verification_tier`, `verification_note` and `verified_at` on every entry. |
+| `--strict` | off | Also block on `unverified` and `snippet_only`. |
+| `--timeout SEC` | 10 | Per-request limit, connect through last byte. |
+| `--retries N` | 2 | Retries for timeouts, connection errors, 429 and 5xx, with exponential backoff and jitter. Bot-walled sites are not retried. |
+| `--concurrency N` | 4 | Claims checked in parallel. Each URL is fetched once per run, however many claims cite it. |
+| `--per-host-delay SEC` | 1.0 | Minimum gap between requests to the same host. |
+| `--no-wayback` | off | Do not look dead or empty pages up on the Wayback Machine. |
+| `--max-bytes N` | 5000000 | Read at most this much of each page. |
+| `--max-redirects N` | 5 | Follow at most this many redirects. |
+| `--cache DIR` | | Reuse fetched pages from `DIR`, and store new ones there. |
+| `--offline` | off | Never touch the network; use only `--cache`. |
+| `--allow-host HOST`, `--allow-private-addresses`, `--proxy-from-env` | off | Relax the address policy. Read SECURITY.md first. |
+
+`cited --help` prints the same list.
+
+## JSON report
+
+`--json` prints one object. Fields are only added in later versions; a breaking change bumps `schema_version`.
+
+```json
+{
+  "schema_version": 1,
+  "cited_version": "x.y.z",
+  "checked_at": "2026-10-01T12:00:00Z",
+  "options": {"strict": false, "offline": false, "wayback": true},
+  "summary": {
+    "total": 2,
+    "counts": {"unsupported": 1, "broken": 0, "low_match": 0, "unverified": 0, "snippet_only": 0, "verified": 1},
+    "blocking": "disqualifying",
+    "offline_misses": 0,
+    "internal_errors": 0,
+    "exit_code": 1
+  },
+  "results": [
+    {
+      "index": 1,
+      "id": "funding",
+      "claim": "Northwind raised a $12M Series A in March.",
+      "source_url": "https://example.com/news",
+      "tier": "unsupported",
+      "label": "Not on page",
+      "blocking": true,
+      "note": "Claim's specifics are not on the page it cites: 12, 12 million",
+      "quoted": 0.25,
+      "topical": 0.6,
+      "checked_against": "live",
+      "http_status": 200,
+      "fetched_url": "https://example.com/news",
+      "snapshot_url": null
+    }
+  ]
+}
+```
+
+- `summary.counts` always has every tier, most severe first.
+- `summary.blocking` is `null`, `"disqualifying"` (unsupported or broken), `"needs_review"` (low_match), or `"unchecked"` (unverified or snippet_only under `--strict`).
+- `results` is in input order. `id` is the input `id` as a string, or `#<index>` when there is none.
+- `quoted` and `topical` are 0 to 1: the share of the claim's word sequences, and of its distinctive words, found on the page.
+- `checked_against` is `live`, `wayback` or `none`. `http_status` and `fetched_url` describe the live fetch (`null` if there was no response). `snapshot_url` is the Wayback capture used, if any.
+
+## Reproducible runs and CI
+
+Record once with network, then replay without it:
+
+```bash
+cited claims.json --cache .cited-cache            # fetches and stores every page and Wayback lookup
+cited claims.json --cache .cited-cache --offline  # same verdicts, no network; exit 3 on a cache miss
+```
+
+Each cache entry is one JSON file per URL. Errors that might be temporary (timeouts, 5xx, 429) are not cached. Commit the directory to pin a CI check to the pages as they were when you recorded them; delete it to re-check against today's pages. A cache directory is trusted input: whoever can write to it decides the results.
+
+### Optional pre-ship check
+
+cited does not install any hook. If you want one, these block only when you add them.
+
+A git pre-push hook (`.git/hooks/pre-push`, executable) that checks a claims file when one exists:
+
+```sh
+#!/bin/sh
+[ -f claims.json ] || exit 0
+exec cited claims.json   # add --strict to also block on unchecked claims
+```
+
+A CI step (GitHub Actions) that replays a committed cache:
+
+```yaml
+- name: Check citations
+  run: python3 path/to/cited/skills/cited/scripts/verify_claims.py claims.json --cache .cited-cache --offline
+```
+
+## Security
+
+cited fetches URLs an agent wrote, so it treats them as hostile. Only `http` and `https` are fetched. Loopback, private, link-local, cloud-metadata and other non-public addresses are refused, including after a redirect, when a hostname resolves to one, and for odd spellings such as `2130706433` or `[::ffff:127.0.0.1]`. The check runs on the exact address being connected to, so DNS rebinding does not get around it. Redirects, response size and time are capped, and fetched content is never executed. [SECURITY.md](SECURITY.md) lists exactly what is and is not enforced, and the flags that relax it.
 
 ## Limitations
 
-- Matching is lexical. It compares words and word sequences. It cannot tell whether a reworded claim means the same thing as the page, or whether a quoted line means what your artifact says it means.
-- A claim can be `verified` and still be wrong if the page is wrong, or if the page has changed since the check.
-- The specifics check treats numbers (with scale words, so "$40 billion" does not pass for "$40 million"), capitalized words and one-letter identifiers like "Series B" as the facts to look for. That is an English-language shortcut. It skips the claim's first word, misses lowercase brand names, and can flag an ordinary capitalized word that the page happens not to use.
-- Negation and qualifiers are invisible to it. "did not raise" and "raised" share most of their words.
-- Pages that need JavaScript to render, or that block scripted fetches, can't be checked. Those come back `unverified` or `snippet_only`.
+- **Matching is lexical.** It compares words and word sequences. It cannot tell whether a reworded claim means the same as the page, or whether a quoted line means what your artifact says.
+- **Substituted lowercase words pass.** Only numbers, capitalized words and one-letter identifiers are checked as specifics. `"The .demo TLD is recommended for use in documentation"` checked against RFC 2606 (which says `.example`) came back `verified`, because every other word is quoted.
+- **Numbers written as words are not checked.** `"reserves seven top level domain names"` against a page that says "four" came back `low_match`, not `unsupported`. It still blocks, but for the wrong reason.
+- **Negation and qualifiers are invisible.** "did not raise" and "raised" share most of their words.
+- **English-centric.** The capitalized-name heuristic skips the claim's first word, misses lowercase brand names, and can flag an ordinary capitalized word the page does not use.
+- **No JavaScript.** Pages that render in the browser come back thin (`unverified`) unless their meta description or JSON-LD carries the claim, or the Wayback copy has text.
+- **Pages change.** A claim can be `verified` today and gone tomorrow, or vice versa. Every annotated entry carries `verified_at`, and `--cache` pins a run to the pages it saw.
+- **Wayback is a fallback, not an oracle.** The closest capture may be older or newer than the page you cited.
+- **A server can show cited something different** from what it shows a person (cloaking, geo or login walls). cited reports what it was served.
+
+### What it does not do
+
+| You want | cited | Use instead, or as well |
+|---|---|---|
+| Know whether a claim is true | Only whether it is on the cited page | A human, or a fact-checking process with independent sources |
+| Judge a paraphrase or summary | Flags it as `low_match` for a person | An LLM or NLI entailment check on the page text, with a human for disputes |
+| Check PDFs, papers or DOIs | Reports `unverified` | A PDF text extractor, or Crossref/DOI metadata tools |
+| Check pages that need a browser, a login or a paywall | Reports `unverified`, `snippet_only` or `broken` | A headless browser you control |
+| Monitor links over time | One run per call | A scheduled link checker, or cited in a scheduled CI job |
+| Find a source for an uncited claim | Needs a `source_url` | Search, then cited to check what you found |
+
+## Evals
+
+`evals/` holds a [`claude plugin eval`](https://code.claude.com/docs/en/plugin-evals) suite: one case where a note mixes quoted, misdated, paraphrased and dead citations, one where a request has no URLs and the skill must stay out of the way, and one with an invalid claims file. They call a model and cost money, so CI does not run them. To run them yourself:
+
+```bash
+claude plugin eval . --allow-tools Bash Write "WebFetch(domain:www.rfc-editor.org)" "WebFetch(domain:archive.org)"
+```
+
+The network grants are needed because Bash runs sandboxed, and `catch-fabricated-citation` fetches RFC 2606.
+
+## Development
+
+See [CONTRIBUTING.md](CONTRIBUTING.md). `skills/cited/references/methodology.md` explains the scoring.
 
 ## License
 
-MIT. See `LICENSE`.
+MIT. See [LICENSE](LICENSE).
+
+## Background
+
+cited began as the source-verification step of [signal-scout](https://github.com/OrenSegal/signal-scout).

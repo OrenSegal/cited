@@ -1,6 +1,6 @@
 # Methodology
 
-This is the reference material an agent (or a human wiring this into a pipeline) should read before trusting the tiering output — the reasoning, not just the mechanism, per the skill's own workflow note.
+This is the reference material an agent (or a human wiring this into a pipeline) should read before trusting the tiering output — the reasoning, not just the mechanism.
 
 ## Why containment, not similarity
 
@@ -23,11 +23,17 @@ A broken link (`404`, DNS failure, invalid URL) is a research hygiene problem �
 
 ## Why platform 403s don't fail the run
 
-Several major platforms (Reddit's new UI, X/Twitter, LinkedIn, Glassdoor, Indeed) return `403`/`429` to any scripted fetch, including completely legitimate, live pages — this is an anti-bot wall, not evidence the page is dead or the claim is fabricated. Treating it as `broken` would fail real, honest runs purely because the source happens to live on a platform that blocks bots. Those cases fall through to `snippet_only`: not verified, but explicitly *not* penalized as if it were a dead link or a fabrication — the distinction is disclosed in the note, and it's a judgment call left to whoever is shipping the artifact whether the original discovery snippet is trustworthy enough to keep.
+Several major platforms (such as Reddit's new UI, X/Twitter and LinkedIn) return `403`/`429` to any scripted fetch, including completely legitimate, live pages — this is an anti-bot wall, not evidence the page is dead or the claim is fabricated. Treating it as `broken` would fail real, honest runs purely because the source happens to live on a platform that blocks bots. Those cases fall through to `snippet_only`: not verified, but explicitly *not* penalized as if it were a dead link or a fabrication — the distinction is disclosed in the note, and it's a judgment call left to whoever is shipping the artifact whether the original discovery snippet is trustworthy enough to keep.
 
 ## Why the Wayback Machine fallback exists
 
 A page can go down, get paywalled, or get restructured between when a claim was researched and when it's verified. Before giving up and marking a source `broken`, the script checks the Wayback Machine for an archived copy close to the original fetch — a claim verified against an honest archived snapshot is still a claim verified against the page as it was published, which is strictly better evidence than nothing, and is disclosed as such in the verification note rather than silently presented as a live-page check.
+
+The capture is fetched raw (the `id_` form of the snapshot URL). The default form wraps the page in the archive's toolbar, and for a PDF it returns only that wrapper, which would be scored as the source and make an honest claim look fabricated. Captures the archive recorded as an error page are skipped.
+
+## Why "unverified" is its own tier
+
+`unsupported` means the page was read and the claim is not on it. That is only true if the whole page was read. When it was not (a PDF or other binary, a page too thin to hold any claim, a page cut off at `--max-bytes` with the claim not in the part read, or an `--offline` cache miss) the result is `unverified`: nothing was checked, so nothing is alleged. It does not block by default, because it is not evidence of fabrication; `--strict` blocks on it for pipelines that must not ship anything unchecked.
 
 ## What this cannot do
 
