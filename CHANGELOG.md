@@ -7,7 +7,7 @@
 - `cited --help` lists the exit codes and the `Retry-After` cap.
 - Page decoding and text extraction moved to `page_text.py`, and retries, caching and the Wayback lookup to `fetcher.py`. Behavior is unchanged.
 - The README tier table, exit codes, option defaults and JSON example, and the blocked networks in SECURITY.md, are checked against the code by `tests/test_docs.py`.
-- `/cited:check` runs `${CLAUDE_PLUGIN_ROOT}/bin/cited` when `cited` is not on PATH, instead of searching the filesystem for the script. When every source fails with a name-resolution error and `HTTPS_PROXY` is set (Claude Code's sandboxed shell), it re-runs once with `--proxy-from-env` and says so. SECURITY.md describes the trade-off.
+- `/cited:check` runs `${CLAUDE_PLUGIN_ROOT}/bin/cited` when `cited` is not on PATH, instead of searching the filesystem for the script.
 - The `catch-fabricated-citation` eval graders match the namespaced skill name and a real `cited` run by name or path, and no longer count `cited --help` or `which cited` as a run.
 
 ## 0.3.0
