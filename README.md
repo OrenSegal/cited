@@ -59,6 +59,18 @@ Input is a JSON array. `claim` and `source_url` are required; `id` (string or in
 ]
 ```
 
+### From a markdown draft
+
+Point cited at a `.md`, `.markdown` or `.mdx` file and it finds every inline link, works out which claim each link is being asked to support, and checks those pairs the same way.
+
+```bash
+cited draft.md                              # check every sourced claim in the draft
+cited draft.md --certificate cert.html      # also write an HTML certificate to hand someone
+cited draft.md --extract-only               # show the claim/source pairs, no network
+```
+
+Links land in three buckets, decided without a model: `checkable` (a sentence that asserts something, with a source), `repaired` (a trailing `[Source](url)` after the sentence it supports, so the claim is taken from the sentence before), and `excluded` (a bare "here" or "the docs", a link under a Sources or References heading, a relative path, or text too short to assert anything). Excluded links are listed, never fetched, and never affect the exit code: a link with no claim attached cannot pass a containment check, so failing it would be a broken check, not a finding. A link that shares a sentence with other links is given only the part of the sentence it sits in, so it is not blamed for another source's numbers.
+
 An invalid file is rejected before anything is fetched, with every problem listed by its zero-based position (`claims.json[0]: missing required field 'source_url'`).
 
 ## Tiers
@@ -80,7 +92,7 @@ An invalid file is rejected before anything is fetched, with every problem liste
 | 1 | At least one blocking claim. |
 | 2 | Usage error or invalid claims file. Nothing was fetched. |
 | 3 | `--offline` and at least one source had no cached copy, and no other code applies. |
-| 4 | An internal error while checking a claim, or `--annotate-out` could not be written, and nothing was blocking. The other claims are still checked and reported. |
+| 4 | An internal error while checking a claim, or `--annotate-out` or `--certificate` could not be written, and nothing was blocking. The other claims are still checked and reported. |
 | 130 | Interrupted. |
 
 ## Options
@@ -90,6 +102,8 @@ An invalid file is rejected before anything is fetched, with every problem liste
 | `--json` | off | Print the JSON report (below) instead of the table. |
 | `--annotate-out PATH` | | Write the input back with `verification_tier`, `verification_note` and `verified_at` on every entry. |
 | `--strict` | off | Also block on `unverified` and `snippet_only`. |
+| `--certificate PATH` | | Also write an HTML certificate of the run: a verdict, every claim with its tier and note, and (for a draft) the links that were not checked and why. |
+| `--extract-only` | off | Markdown input only. Print the claim/source pairs the draft yields and exit, with no network. |
 | `--timeout SEC` | 10 | Per-request limit, connect through last byte. |
 | `--retries N` | 2 | Retries for timeouts, connection errors, 429 and 5xx, with exponential backoff and jitter. Bot-walled sites are not retried. |
 | `--concurrency N` | 4 | Claims checked in parallel. Each URL is fetched once per run, however many claims cite it. |
@@ -146,6 +160,7 @@ An invalid file is rejected before anything is fetched, with every problem liste
 - `summary.blocking` is `null`, `"disqualifying"` (unsupported or broken), `"needs_review"` (low_match), or `"unchecked"` (unverified or snippet_only under `--strict`).
 - `results` is in input order. `id` is the input `id` as a string, or `#<index>` when there is none.
 - `quoted` and `topical` are 0 to 1: the share of the claim's word sequences, and of its distinctive words, found on the page.
+- For a markdown draft, each result also has `line` (where the link is) and `bucket` (`checkable` or `repaired`), and the report has a top-level `draft` object: `path`, `links` (every inline link found) and `excluded` (one `{id, line, link_text, source_url, reason}` per link that was not checked).
 - `checked_against` is `live`, `wayback` or `none`. `http_status` and `fetched_url` describe the live fetch (`null` if there was no response). `snapshot_url` is the Wayback capture used, if any.
 
 ## Reproducible runs and CI

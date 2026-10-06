@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- Markdown drafts as input: `cited draft.md` finds every inline link, works out which claim each one supports, and checks those pairs. Links with no claim attached (a bare "here", a bibliography entry, a relative path) are listed, never fetched, and never fail the run. `--extract-only` prints the pairs without touching the network. In `--json`, results gain `line` and `bucket`, and the report gains a `draft` object.
+- `--certificate PATH` writes an HTML certificate of the run, for a draft or a claims file.
+- The extractor (`extract.py`), its regression tests and the certificate (`certificate.py`) come from receipts by Oren Segal (MIT), a standalone tool that turned prose with links into claim/source pairs and wrote a certificate. receipts' own fetcher, tiering and specifics audit were not ported: cited's `safe_fetch`, `check_source` and specifics check already cover them.
+
 ## 0.3.1
 
 ### Changed
