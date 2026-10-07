@@ -2,7 +2,8 @@
 """cited: check that each claim is on the page it cites.
 
 Reads a JSON array of {"id", "claim", "source_url"} objects (a file, or - for
-stdin), fetches every source_url, and reports a tier per claim. It checks
+stdin), or a markdown draft (.md), whose links are turned into claim/source
+pairs first. Fetches every source_url and reports a tier per claim. It checks
 containment, not truth: a verified claim is on the page, whether or not the
 page is right."""
 
@@ -19,6 +20,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable
 
+from certificate import render as render_certificate
+from extract import extract
 from fetcher import (
     DEFAULT_PER_HOST_DELAY,
     DEFAULT_RETRIES,
@@ -61,13 +64,14 @@ EXIT_CODES = {
     EXIT_BLOCKING: "At least one blocking claim.",
     EXIT_USAGE: "Usage error or invalid claims file. Nothing was fetched.",
     EXIT_OFFLINE_MISS: "--offline and at least one source had no cached copy, and no other code applies.",
-    EXIT_INTERNAL_ERROR: "An internal error while checking a claim, or --annotate-out could not be written, "
+    EXIT_INTERNAL_ERROR: "An internal error while checking a claim, or --annotate-out or --certificate could not be written, "
                          "and nothing was blocking. The other claims are still checked and reported.",
     EXIT_INTERRUPTED: "Interrupted.",
 }
 
 DEFAULT_CONCURRENCY = 4
 MAX_LISTED_PROBLEMS = 50
+DRAFT_SUFFIXES = (".md", ".markdown", ".mdx")
 
 
 @dataclass
@@ -198,6 +202,41 @@ def load_claims(source: str) -> list[dict[str, Any]]:
     return data
 
 
+def is_draft(source: str) -> bool:
+    return source != "-" and source.lower().endswith(DRAFT_SUFFIXES)
+
+
+def load_draft(source: str) -> tuple[list[dict[str, Any]], list[dict[str, Any]], int]:
+    """Turn a markdown draft into claim entries. Returns (entries, excluded, links_total).
+
+    Entries are the `checkable` and `repaired` links, shaped like load_claims
+    output plus `line` and `bucket`. Excluded links are never fetched."""
+    try:
+        text = Path(source).read_text(encoding="utf-8")
+    except FileNotFoundError:
+        raise InputError([f"{source}: file not found"]) from None
+    except UnicodeDecodeError as exc:
+        raise InputError([f"{source}: not valid UTF-8 ({exc.reason} at byte {exc.start})"]) from None
+    except OSError as exc:
+        raise InputError([f"{source}: cannot read ({exc.strerror or exc})"]) from None
+    pairs = extract(text, Path(source).stem)
+    entries = [{"id": p.id, "claim": p.claim, "source_url": p.source_url, "line": p.line, "bucket": p.bucket}
+               for p in pairs if p.bucket != "excluded"]
+    excluded = [{"id": p.id, "line": p.line, "link_text": p.link_text, "source_url": p.source_url, "reason": p.reason}
+                for p in pairs if p.bucket == "excluded"]
+    return entries, excluded, len(pairs)
+
+
+def _print_pairs(entries: list[dict[str, Any]], excluded: list[dict[str, Any]]) -> None:
+    head = {"checkable": "CHECK ", "repaired": "REPAIR", "excluded": "SKIP  "}
+    rows = sorted([(e["line"], e["bucket"], e["claim"], e["source_url"], "") for e in entries]
+                  + [(x["line"], "excluded", x["link_text"], x["source_url"], x["reason"]) for x in excluded])
+    for line, bucket, text, url, reason in rows:
+        print(f"{head[bucket]} L{line:<4} {text[:110]}")
+        print(f"       {url}" + (f"  ({reason})" if reason else ""))
+    print(f"\n{len(entries)} checkable, {len(excluded)} not checkable, {len(rows)} links total")
+
+
 def _json_type(value: Any) -> str:
     if value is None:
         return "null"
@@ -233,7 +272,7 @@ def build_parser() -> argparse.ArgumentParser:
     epilog = "exit codes:\n" + "\n".join(f"  {code:<4} {meaning}" for code, meaning in EXIT_CODES.items())
     parser = argparse.ArgumentParser(
         prog="cited", description=__doc__, epilog=epilog, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("input", help="JSON array of {id, claim, source_url}; - reads stdin")
+    parser.add_argument("input", help="JSON array of {id, claim, source_url}, or a markdown draft (.md); - reads stdin")
     parser.add_argument("--version", action="version", version=f"cited {VERSION}")
     out = parser.add_argument_group("output")
     out.add_argument("--json", action="store_true",
@@ -242,6 +281,10 @@ def build_parser() -> argparse.ArgumentParser:
                      help="write the input back out with verification_tier/verification_note/verified_at on every entry")
     out.add_argument("--strict", action="store_true",
                      help=f"also fail (exit {EXIT_BLOCKING}) on unverified and snippet_only: claims that were never checked")
+    out.add_argument("--certificate", type=Path, metavar="PATH",
+                     help="also write an HTML certificate of the run to PATH")
+    out.add_argument("--extract-only", action="store_true",
+                     help="markdown input only: print the claim/source pairs found and exit, without fetching")
     net = parser.add_argument_group("fetching")
     net.add_argument("--timeout", type=_positive_float, default=DEFAULT_TIMEOUT, metavar="SEC",
                      help="per-request time limit, connect through last byte (default %(default)s)")
@@ -324,13 +367,24 @@ def main(argv: list[str] | None = None) -> int:
     if args.offline and not args.cache:
         parser.error("--offline needs --cache DIR to read from")
 
+    draft = is_draft(args.input)
+    if args.extract_only and not draft:
+        parser.error("--extract-only needs a markdown draft (.md, .markdown or .mdx)")
+    excluded: list[dict[str, Any]] = []
+    links_total = 0
     try:
-        entries = load_claims(args.input)
+        if draft:
+            entries, excluded, links_total = load_draft(args.input)
+        else:
+            entries = load_claims(args.input)
     except InputError as exc:
         print("cited: invalid input:", file=sys.stderr)
         for problem in exc.problems:
             print(f"  {problem}", file=sys.stderr)
         return EXIT_USAGE
+    if args.extract_only:
+        _print_pairs(entries, excluded)
+        return EXIT_OK
 
     policy = FetchPolicy(
         allow_private=args.allow_private_addresses,
@@ -377,6 +431,8 @@ def main(argv: list[str] | None = None) -> int:
             "fetched_url": verdict.fetched_url,
             "snapshot_url": verdict.snapshot_url,
         })
+        if draft:
+            rows[-1].update(line=entry["line"], bucket=entry["bucket"])
 
     offline_misses = sum(v.offline_miss for v in verdicts)
     internal_errors = sum(v.internal_error for v in verdicts)
@@ -392,6 +448,19 @@ def main(argv: list[str] | None = None) -> int:
         except OSError as exc:
             log(f"could not write {args.annotate_out}: {exc.strerror or exc}")
             code = EXIT_BLOCKING if reason else EXIT_INTERNAL_ERROR
+
+    if args.certificate:
+        try:
+            args.certificate.parent.mkdir(parents=True, exist_ok=True)
+            args.certificate.write_text(
+                render_certificate(Path(args.input).name if args.input != "-" else "stdin", rows, utc_now(),
+                                   excluded=excluded, links_total=links_total if draft else None,
+                                   strict=args.strict, version=VERSION),
+                encoding="utf-8")
+        except OSError as exc:
+            log(f"could not write {args.certificate}: {exc.strerror or exc}")
+            code = EXIT_BLOCKING if reason else EXIT_INTERNAL_ERROR
+            args.certificate = None
 
     if args.json:
         report = {
@@ -409,12 +478,19 @@ def main(argv: list[str] | None = None) -> int:
             },
             "results": rows,
         }
+        if draft:
+            report["draft"] = {"path": args.input, "links": links_total, "excluded": excluded}
         json.dump(report, sys.stdout, indent=2, ensure_ascii=False)
         sys.stdout.write("\n")
     else:
         _print_table(rows, counts, offline_misses, args.strict)
+        if draft and excluded:
+            print(f"\n{len(excluded)} link(s) in the draft were not checked: no claim attached "
+                  "(see --extract-only for why).")
         if annotated:
             print(f"\nAnnotated JSON written: {args.annotate_out.resolve()}")
+        if args.certificate:
+            print(f"\nCertificate written: {args.certificate.resolve()}")
     return code
 
 

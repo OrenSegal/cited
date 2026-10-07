@@ -40,6 +40,8 @@ The test suite makes no real network calls.
 | `skills/cited/scripts/page_text.py` | Content classification, charset decoding and HTML-to-text. Parses, never executes. |
 | `skills/cited/scripts/fetcher.py` | `Fetcher`: retries, per-host throttle, one fetch per URL per run, the disk cache, the Wayback lookup, bot-walled sites. |
 | `skills/cited/scripts/verify_claims.py` | The CLI. `load_claims` (input validation), `check_source` (the decision tree that turns fetch results into a tier), report and exit codes. |
+| `skills/cited/scripts/extract.py` | Markdown draft to claim/source pairs, in three buckets (`checkable`, `repaired`, `excluded`). Pure. Ported from receipts. |
+| `skills/cited/scripts/certificate.py` | Renders a run as a standalone HTML certificate. Pure; escapes everything from the input or a page. Ported from receipts. |
 | `bin/cited` | POSIX sh wrapper that finds Python 3.10+ and runs `verify_claims.py`. On PATH when the plugin is enabled. |
 | `commands/check.md`, `skills/cited/SKILL.md` | The `/cited:check` command and the skill. |
 | `evals/` | `claude plugin eval` cases. Not run in CI. |
@@ -53,6 +55,8 @@ The test suite makes no real network calls.
 | `test_verify_claims.py` | `check_source` branching (live, thin, Wayback, bot walls) through a `StubFetcher` that returns canned `FetchResult`s. |
 | `test_cli.py` | Input validation, exit codes, the JSON schema, cache and `--offline`, retries, throttling, decoding. |
 | `test_docs.py` | The README, SECURITY.md and SKILL.md match the code: tiers, exit codes, flag defaults, the JSON shape, blocked networks. |
+| `test_extract.py` | The extractor's regression cases: navigational links, trailing citations, claims scoped to their own clause. Each is a bug that shipped in receipts. |
+| `test_draft.py` | Markdown input through `main()`: excluded links never fetched and never blocking, `--extract-only`, `--certificate`, and escaping in the certificate. |
 | `test_integration.py` | End to end over real HTTP against a local server (`conftest.FixtureServer`) serving `tests/fixtures/site/`, through `main()` and through `bin/cited`. Every tier, and Wayback via a local stand-in. |
 
 `conftest.py` provides the `server` fixture (a threaded HTTP server on 127.0.0.1 with per-path hit counts) and `fake_dns`, which makes a hostname resolve to an address of your choice for one test. Because the fixture server is on loopback, tests that fetch from it pass `--allow-private-addresses` (or `FetchPolicy(allow_private=True)`); `test_default_policy_refuses_the_local_fixture_server` checks the default still refuses it.
