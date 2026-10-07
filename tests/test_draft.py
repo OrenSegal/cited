@@ -105,6 +105,15 @@ def test_certificate_escapes_input_and_page_text():
     assert "&lt;script&gt;" in page
 
 
+def test_certificate_links_only_http_sources():
+    row = {"tier": "broken", "claim": "c", "source_url": " JavaScript:alert(1)", "quoted": 0.0, "topical": 0.0}
+    page = render("d", [row], "t")
+    assert 'href="' not in page.split("<body>", 1)[1].split('class="claim"', 1)[1]
+    assert "<code>JavaScript:alert(1)</code>" in page
+    ok = render("d", [dict(row, source_url="https://a.test/x")], "t")
+    assert '<a href="https://a.test/x">' in ok
+
+
 def test_certificate_verdict_follows_cited_blocking_rules():
     review = {"tier": "low_match", "claim": "c", "source_url": "https://a.test", "quoted": 0.1, "topical": 0.5}
     assert "need a person to check" in render("d", [review], "t")

@@ -43,7 +43,7 @@ BIBLIOGRAPHIC_HEADING = re.compile(
 )
 
 INLINE_LINK = re.compile(r"\[((?:[^\[\]]|\[[^\[\]]*\])*)\]\(\s*(<[^>]*>|[^\s)]+)(?:\s+[\"'][^\"']*[\"'])?\s*\)")
-FENCE = re.compile(r"^\s*(```|~~~)")
+FENCE = re.compile(r"^\s*(`{3,}|~{3,})")  # any indent: fences nest in list items
 BARE_MARKER = re.compile(r"^[\s\W\d]*$")  # "[1]", "(*)", a dash, "2."
 
 # A sentence worth checking usually carries something falsifiable in it.
@@ -127,7 +127,7 @@ def _is_bare(link_text: str) -> bool:
 def _blocks(markdown: str) -> Iterator[tuple[int, str, bool]]:
     """Yield (1-based start line, paragraph text, under_bibliography)."""
     lines = markdown.splitlines()
-    in_fence = False
+    fence: tuple[str, int] | None = None  # (fence char, run length) of the open block
     biblio = False
     buf: list[str] = []
     start = 1
@@ -141,13 +141,21 @@ def _blocks(markdown: str) -> Iterator[tuple[int, str, bool]]:
         return None
 
     for idx, raw in enumerate(lines, start=1):
-        if FENCE.match(raw):
-            out = flush()
-            if out:
-                yield out
-            in_fence = not in_fence
-            continue
-        if in_fence:
+        # CommonMark: a block closes only on a run of the opener's character,
+        # at least as long, with nothing after it. Anything else stays code.
+        m = FENCE.match(raw)
+        if m:
+            run = m.group(1)
+            if fence is None:
+                out = flush()
+                if out:
+                    yield out
+                fence = (run[0], len(run))
+                continue
+            if run[0] == fence[0] and len(run) >= fence[1] and not raw[m.end():].strip():
+                fence = None
+                continue
+        if fence is not None:
             continue
         if raw.lstrip().startswith("#"):
             out = flush()
@@ -256,15 +264,23 @@ def extract(markdown: str, doc_id: str = "doc") -> list[Pair]:
 
     for start_line, block, biblio in _blocks(markdown):
         raw_sentences = split_sentences(block)
+        cursor = 0
 
         for s_idx, raw_sentence in enumerate(raw_sentences):
+            # split_sentences collapsed whitespace, so find the sentence in the
+            # original block by its tokens with any whitespace (newlines too)
+            # between them, searching forward from the previous sentence.
+            tokens = raw_sentence.split()[:8]
+            found = re.compile(r"\s+".join(map(re.escape, tokens))).search(block, cursor)
+            if found:
+                cursor = found.end()
+            line = start_line + block[: found.start() if found else 0].count("\n")
             links = list(INLINE_LINK.finditer(raw_sentence))
             for i, match in enumerate(links):
                 seq += 1
                 link_text = match.group(1)
                 url = match.group(2).strip("<>")
                 pid = f"{doc_id}-{seq:03d}"
-                line = start_line + block[: max(block.find(raw_sentence[:40]), 0)].count("\n")
 
                 if not url.lower().startswith(("http://", "https://")):
                     pairs.append(Pair(pid, "", url, "excluded", link_text, line,

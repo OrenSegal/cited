@@ -39,6 +39,31 @@ class NavigationalLinks(unittest.TestCase):
         md = "```\n[fake](https://example.com/nope)\n```\n"
         self.assertEqual(extract(md, "t"), [])
 
+    def test_a_fence_closes_only_on_a_matching_fence(self):
+        # A shorter run or the other fence character is code, not a closer.
+        for opener, inner in (("````", "```"), ("```", "~~~"), ("```", "``` not a closer")):
+            md = f"{opener}\n{inner}\n[fake](https://example.com/nope)\n{opener}\n"
+            self.assertEqual(extract(md, "t"), [], (opener, inner))
+
+    def test_prose_after_a_matched_close_is_extracted(self):
+        md = "````\n```\n````\n\nThe [2024 report](https://example.com/r) found 40% growth.\n"
+        self.assertEqual([p.link_text for p in extract(md, "t")], ["2024 report"])
+
+
+class LineNumbers(unittest.TestCase):
+    """Shipped bug: a sentence that wrapped inside its first 40 characters got its block's line."""
+
+    def test_wrapped_second_sentence_gets_its_own_line(self):
+        md = ("Intro line one.\nThe Acme\nsurvey found that [40% of teams\nship weekly]"
+              "(https://example.com/s).\n")
+        (pair,) = extract(md, "t")
+        self.assertEqual(pair.line, 2)
+
+    def test_repeated_sentence_start_is_found_in_order(self):
+        md = ("Acme said in its annual filing that revenue [grew 10%](https://example.com/a).\n"
+              "Acme said in its annual filing that revenue [grew 20%](https://example.com/b).\n")
+        self.assertEqual([p.line for p in extract(md, "t")], [1, 2])
+
 
 class ClaimsInsideLinkText(unittest.TestCase):
     """Shipped bug: a long claim written *inside* the link was skipped as navigational."""

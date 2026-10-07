@@ -84,6 +84,15 @@ def _esc(text: Any) -> str:
     return html.escape("" if text is None else str(text))
 
 
+def _link(url: Any) -> str:
+    """Only http(s) becomes clickable. A `javascript:` or `data:` URL from a
+    claims file is shown as text, never as an href someone can click."""
+    u = "" if url is None else str(url).strip()
+    if u.lower().startswith(("http://", "https://")):
+        return f'<a href="{_esc(u)}">{_esc(u)}</a>'
+    return f"<code>{_esc(u)}</code>"
+
+
 def _verdict(counts: Counter, strict: bool) -> tuple[str, str, str]:
     reason = blocking_reason(counts, strict=strict)
     bad = counts[TIER_UNSUPPORTED] + counts[TIER_BROKEN]
@@ -137,7 +146,7 @@ def render(
   <div class="top"><span class="tier t-{_esc(row['tier'])}">{_esc(TIER_LABELS.get(row['tier'], row['tier']))}</span>
   <span class="why">{_esc(TIER_MEANING.get(row['tier'], ''))}</span></div>
   <q>{_esc(row['claim'])}</q>
-  <div class="meta"><a href="{_esc(row['source_url'])}">{_esc(row['source_url'])}</a></div>
+  <div class="meta">{_link(row['source_url'])}</div>
   <div class="meta">{where}quoted {row.get('quoted', 0):.0%} · vocabulary {row.get('topical', 0):.0%}
   · checked against {_esc(row.get('checked_against', 'none'))}{repaired}</div>
   {note}
