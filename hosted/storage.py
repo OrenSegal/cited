@@ -39,6 +39,10 @@ class Storage(Protocol):
         """Write `key` only if it does not exist yet. True if this call created it."""
         ...
 
+    def delete(self, key: str) -> None:
+        """Remove `key`. Removing a key that does not exist is not an error."""
+        ...
+
 
 def _check_key(key: str) -> str:
     parts = key.split("/")
@@ -76,6 +80,9 @@ class LocalStorage:
         except FileExistsError:
             return False
         return True
+
+    def delete(self, key: str) -> None:
+        self._path(key).unlink(missing_ok=True)
 
 
 class SupabaseStorage:
@@ -138,6 +145,17 @@ class SupabaseStorage:
         if status in (400, 409):
             return False
         raise StorageError(f"Supabase Storage refused the upload (HTTP {status})")
+
+    def delete(self, key: str) -> None:
+        try:
+            with self._open(self._request("DELETE", key), timeout=SUPABASE_TIMEOUT):
+                pass
+        except urllib.error.HTTPError as exc:
+            exc.close()
+            if exc.code not in (400, 404):
+                raise StorageError(f"Supabase Storage delete failed (HTTP {exc.code})") from None
+        except (urllib.error.URLError, OSError) as exc:
+            raise StorageError(f"Supabase Storage unreachable: {exc}") from None
 
 
 def storage_from_env(env: dict[str, str] | None = None) -> Storage:
