@@ -244,6 +244,30 @@ class _GuardedHTTPSHandler(urllib.request.HTTPSHandler):
         return self.do_open(self._conn_class, req, context=self._context)
 
 
+def _keep_alive(base: type) -> type:
+    """urllib always sends `Connection: close`. Some proxies (Claude Code's
+    sandbox proxy among them) then drop the tail of the response when the
+    server closes, and the body comes back short. Asking for keep-alive lets
+    the response end by its own framing instead."""
+    class KeepAlive(base):  # type: ignore[misc, valid-type]
+        def putheader(self, header: str, *values: Any) -> None:
+            if header.lower() == "connection":
+                values = ("keep-alive",)
+            super().putheader(header, *values)
+
+    return KeepAlive
+
+
+class _ProxyHTTPHandler(urllib.request.HTTPHandler):
+    def http_open(self, req):
+        return self.do_open(_keep_alive(http.client.HTTPConnection), req)
+
+
+class _ProxyHTTPSHandler(urllib.request.HTTPSHandler):
+    def https_open(self, req):
+        return self.do_open(_keep_alive(http.client.HTTPSConnection), req, context=self._context)
+
+
 class _GuardedRedirectHandler(urllib.request.HTTPRedirectHandler):
     max_redirections = 1_000  # our own hop count below is the real limit
 
@@ -288,8 +312,8 @@ def _build_opener(policy: FetchPolicy) -> urllib.request.OpenerDirector:
     if policy.use_env_proxy:
         handlers: list[urllib.request.BaseHandler] = [
             urllib.request.ProxyHandler(),
-            urllib.request.HTTPHandler(),
-            urllib.request.HTTPSHandler(context=ssl.create_default_context()),
+            _ProxyHTTPHandler(),
+            _ProxyHTTPSHandler(context=ssl.create_default_context()),
         ]
     else:
         handlers = [_GuardedHTTPHandler(policy), _GuardedHTTPSHandler(policy)]

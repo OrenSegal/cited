@@ -8,6 +8,11 @@
 - `--certificate PATH` writes an HTML certificate of the run, for a draft or a claims file.
 - The extractor (`extract.py`), its regression tests and the certificate (`certificate.py`) come from receipts by Oren Segal (MIT), a standalone tool that turned prose with links into claim/source pairs and wrote a certificate. receipts' own fetcher, tiering and specifics audit were not ported: cited's `safe_fetch`, `check_source` and specifics check already cover them.
 
+### Fixed
+
+- `--proxy-from-env` fetches no longer come back short behind Claude Code's sandbox proxy. urllib always sent `Connection: close`, and the proxy dropped the tail of the body when the server closed; proxy mode now asks to keep the connection open. The direct path is unchanged.
+- The evals measure the skill text: `invalid-claims-file` needs a real `cited` run on a claims file and fails with the plugin absent, `catch-fabricated-citation` runs offline against recorded pages and checks the disclosed tally, and `cited:check` passes `--proxy-from-env` in a sandbox.
+
 ## 0.3.1
 
 ### Changed
