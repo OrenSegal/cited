@@ -257,8 +257,156 @@ def _narrow(raw_sentence: str, links: list[re.Match], i: int) -> tuple[str, bool
     return window, True
 
 
+# Research notes rarely cite with [text](url). They put a bare URL after the
+# claim, often in a bracketed tag ("[S, single source: https://...]"), in the
+# last cell of a table row, or without a scheme at all ("(help.example.com/p)").
+# These patterns find those, on text whose inline links and code spans are masked.
+BARE_URL = re.compile(r"<?(https?://[^\s<>\[\]|`]+)>?", re.IGNORECASE)
+SCHEMELESS_URL = re.compile(r"(?:(?<=[(\[])|(?<=:\s))((?:[a-z0-9-]+\.)+[a-z]{2,24}/[^\s()\[\]|,;`]*)", re.IGNORECASE)
+TABLE_RULE = re.compile(r"^\s*\|?\s*:?-{2,}:?\s*(\|\s*:?-{2,}:?\s*)*\|?\s*$")
+LIST_ITEM = re.compile(r"^\s*([-*+]|\d+[.)])\s+")
+TAG = re.compile(r"\[[^\[\]]{0,40}\]")  # "[V]", "[S, press]": evidence labels, not prose
+CODE_SPAN = re.compile(r"`[^`\n]*`")
+CITATION_WORDS = 12  # a bracket around a URL with at most this many other words is a citation, not prose
+
+
+def _mask(text: str) -> str:
+    """Blank out inline links and code spans, keeping every offset."""
+    for pattern in (INLINE_LINK, CODE_SPAN):
+        text = pattern.sub(lambda m: " " * len(m.group(0)), text)
+    return text
+
+
+def _trim_url(url: str) -> str:
+    while url and (url[-1] in ".,;:!?'\"" or (url[-1] == ")" and url.count(")") > url.count("("))):
+        url = url[:-1]
+    return url
+
+
+def _bare_urls(text: str) -> list[tuple[int, int, str, bool]]:
+    """(start, end, url, scheme_inferred) for every bare URL in `text`."""
+    masked = _mask(text)
+    found: list[tuple[int, int, str, bool]] = []
+    for m in BARE_URL.finditer(masked):
+        url = _trim_url(m.group(1))
+        start = m.start(1) - (1 if m.group(0).startswith("<") else 0)
+        end = m.start(1) + len(url) + (1 if m.group(0).endswith(">") and url == m.group(1) else 0)
+        found.append((start, end, url, False))
+    taken = [(s, e) for s, e, _, _ in found]
+    for m in SCHEMELESS_URL.finditer(masked):
+        if any(s <= m.start() < e for s, e in taken):
+            continue
+        url = _trim_url(m.group(1))
+        found.append((m.start(1), m.start(1) + len(url), "https://" + url, True))
+    return sorted(found)
+
+
+def _citation_span(text: str, start: int, end: int) -> tuple[int, int]:
+    """The span to cut from the claim: the URL, or the short bracket around it."""
+    for open_ch, close_ch in (("[", "]"), ("(", ")")):
+        opener = text.rfind(open_ch, 0, start)
+        if opener == -1 or text.find(close_ch, opener, start) != -1:
+            continue
+        closer = text.find(close_ch, end)
+        if closer == -1:
+            continue
+        inside = text[opener + 1:start] + text[end:closer]
+        if len(inside.split()) <= CITATION_WORDS:
+            return opener, closer + 1
+    return start, end
+
+
+def _without(text: str, spans: list[tuple[int, int]]) -> str:
+    for lo, hi in sorted(spans, reverse=True):
+        text = text[:lo] + " " + text[hi:]
+    text = _strip_markdown(TAG.sub(" ", text))
+    text = re.sub(r"\s+([.,;:!?])", r"\1", text)
+    return re.sub(r"^[\s,;:|–—-]+|[\s,;:|(–—-]+$", "", text)
+
+
+def _units(block: str) -> Iterator[tuple[int, str]]:
+    """Split a block into (line offset, text) units: one per list item, or the whole paragraph."""
+    lines = block.split("\n")
+    unit: list[str] = []
+    first = 0
+    for idx, line in enumerate(lines):
+        if LIST_ITEM.match(line) and unit:
+            yield first, "\n".join(unit)
+            unit, first = [], idx
+        unit.append(line)
+    if unit:
+        yield first, "\n".join(unit)
+
+
+def _sentence_spans(text: str) -> list[tuple[int, int]]:
+    flat = text.replace("\n", " ")
+    spans, lo = [], 0
+    for m in _SENT_SPLIT.finditer(flat):
+        spans.append((lo, m.start()))
+        lo = m.end()
+    spans.append((lo, len(flat)))
+    return spans
+
+
+def _table_rows(block: str) -> Iterator[tuple[int, list[str]]] | None:
+    """(line offset, cells) for each data row, or None if the block is not a table."""
+    lines = block.split("\n")
+    if len(lines) < 2 or not all(line.strip().startswith("|") for line in lines) \
+            or not TABLE_RULE.match(lines[1]):
+        return None
+    return ((i, [c.strip() for c in re.split(r"(?<!\\)\|", line.strip().strip("|"))])
+            for i, line in enumerate(lines) if i > 1)
+
+
+def _bare_pairs(block: str, start_line: int, biblio: bool) -> Iterator[tuple[int, str, str, str, Bucket, str, bool]]:
+    """(line, claim, url, link_text, bucket, reason, scheme_inferred) for each bare URL in a block."""
+    rows = _table_rows(block)
+    if rows is not None:
+        for offset, cells in rows:
+            claim = next((_without(c, []) for c in cells
+                          if not _bare_urls(c) and len(_without(c, []).split()) >= 3), "")
+            for cell in cells:
+                for _, _, url, inferred in _bare_urls(cell):
+                    if biblio:
+                        yield (start_line + offset, "", url, url, "excluded",
+                               "under a references/sources heading: bibliography, not an in-line claim", inferred)
+                    elif len(claim.split()) < 4:
+                        yield start_line + offset, claim, url, url, "excluded", "table row with no claim cell", inferred
+                    else:
+                        yield (start_line + offset, claim, url, url, "checkable",
+                               "table row: claim from the row, source from its URL cell", inferred)
+        return
+
+    for offset, unit in _units(block):
+        found = _bare_urls(unit)
+        if not found:
+            continue
+        sentences = _sentence_spans(unit)
+        for lo, hi in sentences:
+            here = [f for f in found if lo <= f[0] < hi]
+            if not here:
+                continue
+            text = unit[lo:hi]
+            cuts = [_citation_span(text, s - lo, e - lo) for s, e, _, _ in here]
+            claim = _without(text, cuts)
+            bucket: Bucket = "checkable"
+            reason = "sentence with a bare source URL"
+            if len(claim.split()) < 4:
+                prev = next((_without(unit[a:b], []) for a, b in reversed(sentences[:sentences.index((lo, hi))])
+                             if len(_without(unit[a:b], []).split()) >= 4), "")
+                claim, bucket, reason = (
+                    (prev, "repaired", "trailing citation: claim taken from the preceding sentence") if prev
+                    else (claim, "excluded", "bare URL with no claim attached; cannot pass a containment check"))
+            if biblio:
+                bucket, reason = "excluded", "under a references/sources heading: bibliography, not an in-line claim"
+            for s, _, url, inferred in here:
+                line = start_line + offset + unit[:s].count("\n")
+                yield line, claim if bucket != "excluded" or not biblio else "", url, url, bucket, reason, inferred
+
+
 def extract(markdown: str, doc_id: str = "doc") -> list[Pair]:
-    """Extract and classify every inline link in a markdown document."""
+    """Extract and classify every link in a markdown document: inline links,
+    then bare URLs (in prose, bracketed tags and table rows)."""
     pairs: list[Pair] = []
     seq = 0
 
@@ -332,5 +480,14 @@ def extract(markdown: str, doc_id: str = "doc") -> list[Pair]:
                 pairs.append(Pair(pid, claim, url, "checkable", link_text, line,
                                   "declarative sentence with an attached source",
                                   score, tags))
+
+        for line, claim, url, link_text, bucket, reason, inferred in _bare_pairs(block, start_line, biblio):
+            seq += 1
+            score, tags = _salience(claim) if bucket != "excluded" else (0, [])
+            tags.append("bare-url")
+            if inferred:
+                tags.append("scheme-inferred")
+                reason += "; no scheme in the draft, https:// assumed"
+            pairs.append(Pair(f"{doc_id}-{seq:03d}", claim, url, bucket, link_text, line, reason, score, tags))
 
     return pairs

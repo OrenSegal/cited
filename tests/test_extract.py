@@ -126,3 +126,62 @@ class PatternsFixture(unittest.TestCase):
         for p in pairs:
             if p.bucket != "excluded":
                 self.assertGreaterEqual(len(p.claim.split()), 4, p)
+
+
+class BareUrls(unittest.TestCase):
+    """Research notes cite with bare URLs, not [text](url). Found on a real run:
+    two of the owner's notes, 21 and 8 sources, extracted to zero pairs."""
+
+    def pairs(self, md):
+        return [(p.bucket, p.claim, p.source_url) for p in extract(md, "t")]
+
+    def test_table_row_claim_comes_from_its_prose_cell(self):
+        md = ("| Fact | Grade | Source |\n|---|---|---|\n"
+              "| Operator is Example Holdings, Inc. | [V] | https://example.com/legal |\n"
+              "| Funding: Series C $1B at $10B | [S] | https://a.example/x , https://b.example/y |\n")
+        self.assertEqual(self.pairs(md), [
+            ("checkable", "Operator is Example Holdings, Inc.", "https://example.com/legal"),
+            ("checkable", "Funding: Series C $1B at $10B", "https://a.example/x"),
+            ("checkable", "Funding: Series C $1B at $10B", "https://b.example/y"),
+        ])
+
+    def test_bracketed_citation_is_cut_from_the_claim(self):
+        md = "- The files site shows only a heading without auth [V: https://files.example.com].\n"
+        self.assertEqual(self.pairs(md), [
+            ("checkable", "The files site shows only a heading without auth.", "https://files.example.com")])
+
+    def test_scheme_less_reference_in_parentheses_is_inferred_and_labelled(self):
+        md = "Luma Featured lifts registrations up to 5x (help.example.com/p/featuring).\n"
+        (pair,) = extract(md, "t")
+        self.assertEqual(pair.source_url, "https://help.example.com/p/featuring")
+        self.assertIn("scheme-inferred", pair.tags)
+        self.assertIn("https:// assumed", pair.reason)
+        self.assertEqual(pair.claim, "Luma Featured lifts registrations up to 5x.")
+
+    def test_bare_hostnames_and_file_paths_are_not_sources(self):
+        md = "The web workspace at app.example.com reads `docs/setup.md` and (src/app/main.py) on start.\n"
+        self.assertEqual(extract(md, "t"), [])
+
+    def test_sources_list_is_bibliography(self):
+        md = "## Sources\n- https://example.com/a\n- https://example.com/b (a clone tutorial)\n"
+        self.assertEqual([p.bucket for p in extract(md, "t")], ["excluded", "excluded"])
+
+    def test_url_alone_after_a_claim_repairs_from_the_previous_sentence(self):
+        md = "Revenue grew 40% in 2025 at Example Corp. Source: <https://example.com/report>\n"
+        self.assertEqual(self.pairs(md), [
+            ("repaired", "Revenue grew 40% in 2025 at Example Corp.", "https://example.com/report")])
+
+    def test_list_item_that_is_only_a_url_is_excluded(self):
+        md = "- https://example.com/a\n"
+        self.assertEqual([p.bucket for p in extract(md, "t")], ["excluded"])
+
+    def test_inline_links_and_code_are_not_counted_twice(self):
+        md = ("The [2024 report](https://example.com/r) found 40% growth.\n\n"
+              "Run `curl https://example.com/api` to see the 2025 numbers.\n")
+        self.assertEqual([p.source_url for p in extract(md, "t")], ["https://example.com/r"])
+
+    def test_each_list_item_is_its_own_claim(self):
+        md = ("- Venue minimums are $1-4k in the city (venues.example/blog/minimums).\n"
+              "- Draft advisory allows flat fees only (sla.example.gov/advisory, marked DRAFT).\n")
+        self.assertEqual([p.claim for p in extract(md, "t")], [
+            "Venue minimums are $1-4k in the city.", "Draft advisory allows flat fees only."])
