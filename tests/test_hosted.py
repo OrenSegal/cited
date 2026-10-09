@@ -656,3 +656,26 @@ def test_stripe_webhook_needs_an_explicit_paid_status(tmp_path):
                           headers={"stripe-signature": _sign(payload, "whsec_test", now)})
     assert b"minted" not in response.body
     assert not (tmp_path / "data" / "orders").exists()
+
+
+class _ClaimFails(st.LocalStorage):
+    def create(self, key, data):
+        if key.startswith("codes/"):
+            raise st.StorageError("down")
+        return super().create(key, data)
+
+
+def test_a_failed_code_claim_leaves_no_orphan_job(tmp_path, server):
+    data = tmp_path / "data"
+    flaky = webapp.App(storage=_ClaimFails(data), policy=LOCAL, access_codes=frozenset({"good-code"}),
+                       timeout=5.0, per_host_delay=0, use_wayback=False)
+    assert _post(flaky, markdown=_cert_draft(server), mode="certificate", code="good-code").status == 503
+    assert not list(data.glob("jobs/*.json"))
+
+
+def test_a_used_code_leaves_no_orphan_job(tmp_path, server):
+    app = _app(tmp_path, LOCAL)
+    _start(app, _cert_draft(server))
+    jobs = set((tmp_path / "data" / "jobs").glob("*.json"))
+    assert _post(app, markdown=_cert_draft(server), mode="certificate", code="good-code").status == 409
+    assert set((tmp_path / "data" / "jobs").glob("*.json")) == jobs

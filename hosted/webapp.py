@@ -584,8 +584,13 @@ email you a code. Your draft is not stored, so paste it again when you have the 
                 "batch_size": BATCH_SIZE, "created": utc_now(), "delete_hash": _sha(delete_key)}
         # Write the job first, so a storage failure here leaves the code unspent.
         storage.put(f"jobs/{cert_id}.json", json.dumps(meta, ensure_ascii=False).encode("utf-8"), "application/json")
-        if not storage.create(f"codes/{_sha(code)}", cert_id.encode()):
-            storage.delete(f"jobs/{cert_id}.json")
+        try:
+            claimed = storage.create(f"codes/{_sha(code)}", cert_id.encode())
+        except StorageError:
+            self._drop_orphan_job(cert_id)
+            raise
+        if not claimed:
+            self._drop_orphan_job(cert_id)
             raise UserError("That access code has already been used.", 409)
         share, delete = f"/c/{cert_id}", f"/c/{cert_id}/delete?key={delete_key}"
         return _page("Certificate started", f"""<h1>Your certificate is on its way</h1>
@@ -598,6 +603,13 @@ Anyone with it can delete the certificate.</p>
 <a class="secret" href="{_esc(delete)}">{_esc(base_url + delete)}</a></div>
 <div class="actions"><a class="btn" href="{share}">Open the certificate</a></div>""",
                      head='<meta name="robots" content="noindex">')
+
+    def _drop_orphan_job(self, cert_id: str) -> None:
+        """Remove a job nobody can reach: its id and delete key never left the server."""
+        try:
+            self._storage().delete(f"jobs/{cert_id}.json")
+        except StorageError:
+            pass
 
     def _batch_fetcher(self) -> Fetcher:
         return Fetcher(policy=self.policy, timeout=self.job_timeout, retries=1, backoff=0.5,
