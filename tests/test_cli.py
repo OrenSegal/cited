@@ -230,7 +230,7 @@ def test_table_output_is_the_default(tmp_path, server, capsys):
     vc.main([path] + LOCAL)
     out = capsys.readouterr().out
     assert out.startswith("ID")
-    assert "1 claims checked" in out
+    assert "1 claim checked" in out
 
 
 # ── Cache and offline mode ─────────────────────────────────────────────────

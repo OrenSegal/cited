@@ -45,8 +45,10 @@ from tiering_core import (
     TIER_UNSUPPORTED,
     TIER_UNVERIFIED,
     TIERS,
+    agree,
     blocking_reason,
     is_blocking,
+    plural,
     tier_for_claim,
 )
 
@@ -120,7 +122,7 @@ def check_source(url: str, claim: str, fetcher: Fetcher) -> Verdict:
             tier, note, quoted, topical = _verdict_from_text(claim, archived, fetcher.policy.max_bytes)
             why = "unreachable" if live_failed else "yielded no text"
             suffix = f"checked against Wayback archive ({snapshot_date or 'undated'}), live page {why}"
-            return Verdict(tier, f"{note} — {suffix}" if note else suffix, quoted, topical,
+            return Verdict(tier, f"{note}; {suffix}" if note else suffix, quoted, topical,
                            checked_against="wayback", snapshot_url=snapshot_url, **base)
         if live_failed and archived_ok and archived.kind in UNREADABLE_KINDS:
             what = "a PDF" if archived.kind == "pdf" else "non-text content"
@@ -330,6 +332,49 @@ def _check_entry(index: int, entry: dict[str, Any], fetcher: Fetcher) -> Verdict
                        internal_error=True)
 
 
+def check_entries(entries: list[dict[str, Any]], fetcher: Fetcher, *, concurrency: int = DEFAULT_CONCURRENCY,
+                  strict: bool = False, draft: bool = False) -> tuple[list[dict[str, Any]], dict[str, int], list[Verdict]]:
+    """Check every entry and return (rows, counts per tier, verdicts). Rows are
+    the `results` of the JSON report. Each entry is annotated in place with its
+    verification_tier, verification_note and verified_at."""
+    pool = ThreadPoolExecutor(max_workers=concurrency)
+    try:
+        futures = [pool.submit(_check_entry, i, entry, fetcher) for i, entry in enumerate(entries)]
+        verdicts = [future.result() for future in futures]
+    except KeyboardInterrupt:
+        pool.shutdown(wait=False, cancel_futures=True)
+        raise
+    pool.shutdown()
+
+    checked_on = datetime.now(timezone.utc).date().isoformat()
+    counts = {tier: 0 for tier in TIERS}
+    rows: list[dict[str, Any]] = []
+    for index, (entry, verdict) in enumerate(zip(entries, verdicts, strict=True)):
+        counts[verdict.tier] = counts.get(verdict.tier, 0) + 1
+        entry["verification_tier"] = verdict.tier
+        entry["verification_note"] = verdict.note
+        entry["verified_at"] = checked_on
+        rows.append({
+            "index": index,
+            "id": str(entry["id"]) if "id" in entry else f"#{index}",
+            "claim": entry["claim"],
+            "source_url": entry["source_url"],
+            "tier": verdict.tier,
+            "label": TIER_LABELS[verdict.tier],
+            "blocking": is_blocking(verdict.tier, strict),
+            "note": verdict.note,
+            "quoted": round(verdict.quoted, 4),
+            "topical": round(verdict.topical, 4),
+            "checked_against": verdict.checked_against,
+            "http_status": verdict.http_status,
+            "fetched_url": verdict.fetched_url,
+            "snapshot_url": verdict.snapshot_url,
+        })
+        if draft:
+            rows[-1].update(line=entry["line"], bucket=entry["bucket"])
+    return rows, counts, verdicts
+
+
 def _exit_code(reason: str | None, offline_misses: int, internal_errors: int) -> int:
     if reason:
         return EXIT_BLOCKING
@@ -345,20 +390,24 @@ def _print_table(rows: list[dict[str, Any]], counts: dict[str, int], offline_mis
     for row in rows:
         print(f"{row['id'][:26]:<26} {row['label']:<14} {row['quoted']:>6.2f} {row['topical']:>7.2f}  {row['source_url']}")
     summary = ", ".join(f"{counts[t]} {TIER_LABELS[t].lower()}" for t in TIERS if counts.get(t)) or "none"
-    print(f"\n{len(rows)} claims checked — {summary}.")
-    if counts.get(TIER_UNSUPPORTED):
-        print(f"\n{counts[TIER_UNSUPPORTED]} claim(s) are NOT ON THE PAGE they cite. The source loaded and was "
-              "readable, and the claim isn't in it — treat as fabricated until proven otherwise.")
-    if counts.get(TIER_BROKEN):
-        print(f"\n{counts[TIER_BROKEN]} source(s) are unreachable or invalid. Drop the claim or find a working source.")
-    if counts.get(TIER_LOW_MATCH):
-        print(f"\n{counts[TIER_LOW_MATCH]} claim(s) only share vocabulary with their page and are not quoted from it. "
+    print(f"\n{plural(len(rows), 'claim')} checked: {summary}.")
+    if n := counts.get(TIER_UNSUPPORTED):
+        print(f"\n{plural(n, 'claim')} {agree(n, 'is', 'are')} NOT ON THE PAGE {agree(n, 'it cites', 'they cite')}. "
+              "The source loaded and was readable, and the claim isn't in it: treat as fabricated until proven otherwise.")
+    if n := counts.get(TIER_BROKEN):
+        print(f"\n{plural(n, 'source')} {agree(n, 'is', 'are')} unreachable or invalid. "
+              "Drop the claim or find a working source.")
+    if n := counts.get(TIER_LOW_MATCH):
+        print(f"\n{plural(n, 'claim')} only {agree(n, 'shares', 'share')} vocabulary with {agree(n, 'its', 'their')} "
+              f"page and {agree(n, 'is', 'are')} not quoted from it. "
               "A human must check each one against the page, or tighten it to what the page says, before shipping.")
     unchecked = counts.get(TIER_UNVERIFIED, 0) + counts.get(TIER_SNIPPET_ONLY, 0)
     if strict and unchecked:
-        print(f"\n--strict: {unchecked} claim(s) were never checked against page text (unverified or snippet-only).")
+        print(f"\n--strict: {plural(unchecked, 'claim')} {agree(unchecked, 'was', 'were')} never checked against "
+              "page text (unverified or snippet-only).")
     if offline_misses:
-        print(f"\n--offline: {offline_misses} source(s) had no cached copy. Re-run online with --cache to record them.")
+        print(f"\n--offline: {plural(offline_misses, 'source')} had no cached copy. "
+              "Re-run online with --cache to record them.")
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -397,42 +446,12 @@ def main(argv: list[str] | None = None) -> int:
                       per_host_delay=args.per_host_delay, cache_dir=args.cache,
                       offline=args.offline, use_wayback=not args.no_wayback)
 
-    pool = ThreadPoolExecutor(max_workers=args.concurrency)
     try:
-        futures = [pool.submit(_check_entry, i, entry, fetcher) for i, entry in enumerate(entries)]
-        verdicts = [future.result() for future in futures]
+        rows, counts, verdicts = check_entries(entries, fetcher, concurrency=args.concurrency,
+                                               strict=args.strict, draft=draft)
     except KeyboardInterrupt:
-        pool.shutdown(wait=False, cancel_futures=True)
         print("\ncited: interrupted", file=sys.stderr)
         return EXIT_INTERRUPTED
-    pool.shutdown()
-
-    checked_on = datetime.now(timezone.utc).date().isoformat()
-    counts = {tier: 0 for tier in TIERS}
-    rows: list[dict[str, Any]] = []
-    for index, (entry, verdict) in enumerate(zip(entries, verdicts, strict=True)):
-        counts[verdict.tier] = counts.get(verdict.tier, 0) + 1
-        entry["verification_tier"] = verdict.tier
-        entry["verification_note"] = verdict.note
-        entry["verified_at"] = checked_on
-        rows.append({
-            "index": index,
-            "id": str(entry["id"]) if "id" in entry else f"#{index}",
-            "claim": entry["claim"],
-            "source_url": entry["source_url"],
-            "tier": verdict.tier,
-            "label": TIER_LABELS[verdict.tier],
-            "blocking": is_blocking(verdict.tier, args.strict),
-            "note": verdict.note,
-            "quoted": round(verdict.quoted, 4),
-            "topical": round(verdict.topical, 4),
-            "checked_against": verdict.checked_against,
-            "http_status": verdict.http_status,
-            "fetched_url": verdict.fetched_url,
-            "snapshot_url": verdict.snapshot_url,
-        })
-        if draft:
-            rows[-1].update(line=entry["line"], bucket=entry["bucket"])
 
     offline_misses = sum(v.offline_miss for v in verdicts)
     internal_errors = sum(v.internal_error for v in verdicts)
@@ -485,7 +504,8 @@ def main(argv: list[str] | None = None) -> int:
     else:
         _print_table(rows, counts, offline_misses, args.strict)
         if draft and excluded:
-            print(f"\n{len(excluded)} link(s) in the draft were not checked: no claim attached "
+            print(f"\n{plural(len(excluded), 'link')} in the draft {agree(len(excluded), 'was', 'were')} "
+                  "not checked: no claim attached "
                   "(see --extract-only for why).")
         if annotated:
             print(f"\nAnnotated JSON written: {args.annotate_out.resolve()}")

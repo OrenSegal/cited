@@ -1,4 +1,4 @@
-"""Shared test setup: import path for the skill's scripts, a local HTTP
+"""Shared test setup: import paths for the skill's scripts and the hosted app, a local HTTP
 fixture server, and a fake DNS resolver. Nothing in the suite touches the
 real network."""
 
@@ -16,8 +16,10 @@ from typing import Callable, Iterator
 import pytest
 
 SCRIPTS = pathlib.Path(__file__).resolve().parent.parent / "skills" / "cited" / "scripts"
+HOSTED = pathlib.Path(__file__).resolve().parent.parent / "hosted"
 FIXTURES = pathlib.Path(__file__).resolve().parent / "fixtures"
 sys.path.insert(0, str(SCRIPTS))
+sys.path.insert(0, str(HOSTED))
 
 
 class Route:
