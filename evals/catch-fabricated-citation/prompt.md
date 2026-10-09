@@ -16,7 +16,7 @@ I'm about to send this note to my team. Before I do, check that each claim is ac
 ---
 Reserved domain names, a quick note
 
-1. "To safely satisfy these needs, four domain names are reserved as top level domains." Source: https://www.rfc-editor.org/rfc/rfc2606.txt
+1. "To safely satisfy these needs, four domain names are reserved as listed and described below." Source: https://www.rfc-editor.org/rfc/rfc2606.txt
 2. ".invalid" is intended for use in online construction of domain names that are sure to be invalid. Source: https://www.rfc-editor.org/rfc/rfc2606.html
 3. RFC 2606 was published in June 2001. Source: https://www.rfc-editor.org/rfc/rfc2606.txt
 4. The RFC sets aside four top level names so that testers and documentation writers have safe choices. Source: https://www.rfc-editor.org/rfc/rfc2606.txt
