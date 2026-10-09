@@ -53,7 +53,7 @@ from htmldraft import html_to_markdown  # noqa: E402
 from page_text import decode_body  # noqa: E402
 from safe_fetch import VERSION, FetchPolicy, FetchResult, fetch_page  # noqa: E402
 from storage import Storage, StorageError, storage_from_env  # noqa: E402
-from tiering_core import TIERS  # noqa: E402
+from tiering_core import TIERS, agree, plural  # noqa: E402
 from verify_claims import check_entries  # noqa: E402
 
 FREE_LINK_CAP = 25
@@ -444,7 +444,7 @@ It does not show the page is right.</p>""")
         claims = len(meta["entries"])
         checked = min(claims, done * BATCH_SIZE)
         pct = round(100 * done / total) if total else 0
-        return _page("Checking sources", f"""<h1>Checking {claims} claim(s)</h1>
+        return _page("Checking sources", f"""<h1>Checking {plural(claims, 'claim')}</h1>
 <p class="lede">{checked} of {claims} checked. This page updates itself and turns into the certificate
 when every source has been read.</p>
 <div class="progress" role="progressbar" aria-valuemin="0" aria-valuemax="{claims}" aria-valuenow="{checked}">
@@ -510,23 +510,23 @@ from where it stopped the next time anyone opens this link.</p>""",
         if not statuses:
             headline, tone = "No links found", "warn"
         elif problems:
-            headline, tone = f"{problems} of {len(statuses)} source(s) did not load", "bad"
+            headline, tone = f"{problems} of {plural(len(statuses), 'source')} did not load", "bad"
         elif counts["walled"] or counts["redirected"]:
             headline, tone = "Every source answered, some need a look", "warn"
         else:
-            headline, tone = f"All {len(statuses)} source(s) load", "ok"
+            headline, tone = (f"All {plural(len(statuses), 'source')} load" if len(statuses) > 1 else "The one source loads"), "ok"
         tally = "".join(f'<span class="l-{k}" style="flex:{n}"></span>' for k, n in counts.items() if n)
         legend = "".join(f'<li class="l-{k}"><i></i>{LINK_STATUS[k]} <b>{n}</b></li>' for k, n in counts.items() if n)
         rows = "".join(f'<li class="l-{key}"><span class="st">{_esc(LINK_STATUS[key])}</span>'
                        f'<div>{_href(url)}<div class="why">{_esc(detail)}</div></div></li>'
                        for url, key, detail in statuses)
-        capped = (f'<p class="panel"><b>{skipped} more link(s) were not checked.</b> The free check covers the first '
-                  f"{FREE_LINK_CAP}. A certificate checks every link.</p>") if skipped > 0 else ""
+        capped = (f'<p class="panel"><b>{plural(skipped, "more link")} {agree(skipped, "was", "were")} not checked.</b> '
+                  f"The free check covers the first {FREE_LINK_CAP}. A certificate checks every link.</p>") if skipped > 0 else ""
         listing = (f'<ol class="links">{rows}</ol>' if rows else
                    '<p class="lede">No http(s) links were found in this draft. cited reads Markdown links, '
                    "bare URLs and table rows that end in a URL.</p>")
         return _page(f"Link check: {name}", f"""<h1 class="v-{tone}">{_esc(headline)}</h1>
-<p class="sub">Link check of <code>{_esc(name)}</code> · {len(checked)} link(s) checked · {_esc(utc_now())}</p>
+<p class="sub">Link check of <code>{_esc(name)}</code> · {plural(len(checked), 'link')} checked · {_esc(utc_now())}</p>
 {f'<div class="tally" role="img" aria-label="link statuses">{tally}</div><ul class="legend">{legend}</ul>' if tally else ''}
 {capped}
 {listing}
@@ -587,7 +587,7 @@ email you a code. Your draft is not stored, so paste it again when you have the 
         storage.put(f"jobs/{cert_id}.json", json.dumps(meta, ensure_ascii=False).encode("utf-8"), "application/json")
         share, delete = f"/c/{cert_id}", f"/c/{cert_id}/delete?key={delete_key}"
         return _page("Certificate started", f"""<h1>Your certificate is on its way</h1>
-<p class="lede">{len(entries)} claim(s) to check. Open the certificate to watch it fill in; it takes about
+<p class="lede">{plural(len(entries), 'claim')} to check. Open the certificate to watch it fill in; it takes about
 a minute for every 40 sources.</p>
 <div class="panel"><p><b>Share link.</b> Anyone with it can read the certificate.</p>
 <a class="secret" href="{share}">{_esc(base_url + share)}</a></div>

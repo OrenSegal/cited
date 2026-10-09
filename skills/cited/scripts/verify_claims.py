@@ -45,8 +45,10 @@ from tiering_core import (
     TIER_UNSUPPORTED,
     TIER_UNVERIFIED,
     TIERS,
+    agree,
     blocking_reason,
     is_blocking,
+    plural,
     tier_for_claim,
 )
 
@@ -388,20 +390,24 @@ def _print_table(rows: list[dict[str, Any]], counts: dict[str, int], offline_mis
     for row in rows:
         print(f"{row['id'][:26]:<26} {row['label']:<14} {row['quoted']:>6.2f} {row['topical']:>7.2f}  {row['source_url']}")
     summary = ", ".join(f"{counts[t]} {TIER_LABELS[t].lower()}" for t in TIERS if counts.get(t)) or "none"
-    print(f"\n{len(rows)} claims checked — {summary}.")
-    if counts.get(TIER_UNSUPPORTED):
-        print(f"\n{counts[TIER_UNSUPPORTED]} claim(s) are NOT ON THE PAGE they cite. The source loaded and was "
-              "readable, and the claim isn't in it — treat as fabricated until proven otherwise.")
-    if counts.get(TIER_BROKEN):
-        print(f"\n{counts[TIER_BROKEN]} source(s) are unreachable or invalid. Drop the claim or find a working source.")
-    if counts.get(TIER_LOW_MATCH):
-        print(f"\n{counts[TIER_LOW_MATCH]} claim(s) only share vocabulary with their page and are not quoted from it. "
+    print(f"\n{plural(len(rows), 'claim')} checked: {summary}.")
+    if n := counts.get(TIER_UNSUPPORTED):
+        print(f"\n{plural(n, 'claim')} {agree(n, 'is', 'are')} NOT ON THE PAGE {agree(n, 'it cites', 'they cite')}. "
+              "The source loaded and was readable, and the claim isn't in it: treat as fabricated until proven otherwise.")
+    if n := counts.get(TIER_BROKEN):
+        print(f"\n{plural(n, 'source')} {agree(n, 'is', 'are')} unreachable or invalid. "
+              "Drop the claim or find a working source.")
+    if n := counts.get(TIER_LOW_MATCH):
+        print(f"\n{plural(n, 'claim')} only {agree(n, 'shares', 'share')} vocabulary with {agree(n, 'its', 'their')} "
+              f"page and {agree(n, 'is', 'are')} not quoted from it. "
               "A human must check each one against the page, or tighten it to what the page says, before shipping.")
     unchecked = counts.get(TIER_UNVERIFIED, 0) + counts.get(TIER_SNIPPET_ONLY, 0)
     if strict and unchecked:
-        print(f"\n--strict: {unchecked} claim(s) were never checked against page text (unverified or snippet-only).")
+        print(f"\n--strict: {plural(unchecked, 'claim')} {agree(unchecked, 'was', 'were')} never checked against "
+              "page text (unverified or snippet-only).")
     if offline_misses:
-        print(f"\n--offline: {offline_misses} source(s) had no cached copy. Re-run online with --cache to record them.")
+        print(f"\n--offline: {plural(offline_misses, 'source')} had no cached copy. "
+              "Re-run online with --cache to record them.")
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -498,7 +504,8 @@ def main(argv: list[str] | None = None) -> int:
     else:
         _print_table(rows, counts, offline_misses, args.strict)
         if draft and excluded:
-            print(f"\n{len(excluded)} link(s) in the draft were not checked: no claim attached "
+            print(f"\n{plural(len(excluded), 'link')} in the draft {agree(len(excluded), 'was', 'were')} "
+                  "not checked: no claim attached "
                   "(see --extract-only for why).")
         if annotated:
             print(f"\nAnnotated JSON written: {args.annotate_out.resolve()}")

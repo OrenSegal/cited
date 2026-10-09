@@ -111,7 +111,7 @@ def test_free_check_is_capped(tmp_path, server):
 
     assert response.status == 200
     assert server.total_hits == webapp.FREE_LINK_CAP == 25
-    assert "5 more link(s) were not checked" in _text(response)
+    assert "5 more links were not checked" in _text(response)
 
 
 def test_free_check_reports_dead_redirected_and_ok(tmp_path, server):

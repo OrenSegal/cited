@@ -27,7 +27,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from fetcher import Fetcher, utc_now  # noqa: E402
 from safe_fetch import VERSION, FetchPolicy  # noqa: E402
 from storage import StorageError, storage_from_env  # noqa: E402
-from tiering_core import TIER_LABELS  # noqa: E402
+from tiering_core import TIER_LABELS, plural  # noqa: E402
 from verify_claims import check_entries  # noqa: E402
 
 EXIT_SAME, EXIT_CHANGED, EXIT_USAGE = 0, 1, 2
@@ -91,7 +91,7 @@ def main(argv: list[str] | None = None) -> int:
         json.dump({k: v for k, v in report.items() if k != "results"}, sys.stdout, indent=2, ensure_ascii=False)
         sys.stdout.write("\n")
     else:
-        print(f"{report['document']}: {len(report['results'])} claim(s) re-checked, first checked "
+        print(f"{report['document']}: {plural(len(report['results']), 'claim')} re-checked, first checked "
               f"{report['previous_checked_at']}, now {report['checked_at']}.")
         if not report["changed"]:
             print("No verdict changed.")
