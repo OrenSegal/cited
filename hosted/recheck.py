@@ -40,13 +40,28 @@ def entries_from_run(run: dict[str, Any]) -> list[dict[str, Any]]:
             for row in sorted(run["results"], key=lambda r: r.get("index", 0))]
 
 
+REQUIRED_RESULT_FIELDS = ("id", "claim", "source_url", "tier")
+
+
+def _validate_run(run: Any) -> None:
+    """Raise ValueError unless every stored result has the fields a re-check needs."""
+    results = run.get("results") if isinstance(run, dict) else None
+    if not isinstance(results, list):
+        raise ValueError("the run has no results list")
+    for i, row in enumerate(results):
+        missing = [f for f in REQUIRED_RESULT_FIELDS if not isinstance(row, dict) or f not in row]
+        if missing:
+            raise ValueError(f"result {i} is missing {', '.join(missing)}")
+
+
 def recheck(run: dict[str, Any], fetcher: Fetcher, concurrency: int = 8) -> dict[str, Any]:
     """Re-run every claim in `run`; return {checked_at, counts, results, changed}."""
     rows, counts, _ = check_entries(entries_from_run(run), fetcher, concurrency=concurrency, draft=True)
-    before = {row["id"]: row for row in run["results"]}
+    # Pair by position, not id: ids can repeat, and rows come back in entry order.
+    before = sorted(run["results"], key=lambda r: r.get("index", 0))
     changed = [{"id": row["id"], "claim": row["claim"], "source_url": row["source_url"],
-                "was": before[row["id"]]["tier"], "now": row["tier"], "note": row["note"]}
-               for row in rows if row["id"] in before and before[row["id"]]["tier"] != row["tier"]]
+                "was": old["tier"], "now": row["tier"], "note": row["note"]}
+               for old, row in zip(before, rows, strict=True) if old["tier"] != row["tier"]]
     return {"cited_version": VERSION, "checked_at": utc_now(), "previous_checked_at": run.get("checked_at"),
             "document": run.get("document"), "counts": counts, "results": rows, "changed": changed}
 
@@ -76,7 +91,7 @@ def main(argv: list[str] | None = None) -> int:
         else:
             raw = args.run.read_bytes()
         run = json.loads(raw)
-        run["results"]  # noqa: B018 — a run without results is not a run
+        _validate_run(run)
     except (OSError, StorageError, ValueError, KeyError, TypeError) as exc:
         print(f"recheck: cannot read the run: {exc}", file=sys.stderr)
         return EXIT_USAGE

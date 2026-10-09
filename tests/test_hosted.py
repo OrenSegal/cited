@@ -629,3 +629,30 @@ def test_handler_trusts_forwarded_address_only_on_vercel(tmp_path, monkeypatch, 
         httpd.server_close()
     # Off Vercel the header is client-controlled, so both requests count against 127.0.0.1.
     assert statuses == ([200, 200] if on_vercel else [200, 429])
+
+
+class _JobWriteFails(st.LocalStorage):
+    def put(self, key, data, content_type="application/octet-stream"):
+        if key.startswith("jobs/"):
+            raise st.StorageError("down")
+        return super().put(key, data, content_type)
+
+
+def test_a_failed_job_write_leaves_the_code_unspent(tmp_path, server):
+    data = tmp_path / "data"
+    flaky = webapp.App(storage=_JobWriteFails(data), policy=LOCAL, access_codes=frozenset({"good-code"}),
+                       timeout=5.0, per_host_delay=0, use_wayback=False)
+    assert _post(flaky, markdown=_cert_draft(server), mode="certificate", code="good-code").status == 503
+    _start(_app(tmp_path, LOCAL), _cert_draft(server))  # same storage dir: the code still works
+
+
+def test_stripe_webhook_needs_an_explicit_paid_status(tmp_path):
+    now = 1_700_000_000
+    app = webapp.App(storage=st.LocalStorage(tmp_path / "data"), stripe_secret="whsec_test", clock=lambda: now)
+    event = json.loads(_stripe_event())
+    del event["data"]["object"]["payment_status"]
+    payload = json.dumps(event).encode()
+    response = app.handle("POST", "/stripe/webhook", payload, "application/json",
+                          headers={"stripe-signature": _sign(payload, "whsec_test", now)})
+    assert b"minted" not in response.body
+    assert not (tmp_path / "data" / "orders").exists()

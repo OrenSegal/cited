@@ -63,3 +63,18 @@ def test_cli_loads_by_id_from_storage_and_saves(tmp_path, server, monkeypatch, c
     assert saved["changed"]
     assert json.loads(capsys.readouterr().out)["changed"] == saved["changed"]
     assert recheck.main(["--id", "nonexistent-id-123"]) == recheck.EXIT_USAGE
+
+
+def test_duplicate_ids_are_compared_by_position(tmp_path, server):
+    _, run = _stored_run(tmp_path, server)
+    for row in run["results"]:
+        row["id"] = "same"
+    report = recheck.recheck(run, Fetcher(policy=LOCAL, timeout=5, retries=0, per_host_delay=0, use_wayback=False))
+    assert report["changed"] == []
+
+
+def test_incomplete_results_are_a_usage_error(tmp_path, capsys):
+    path = tmp_path / "run.json"
+    path.write_text(json.dumps({"results": [{"id": "x"}]}))
+    assert recheck.main([str(path)]) == recheck.EXIT_USAGE
+    assert "missing claim" in capsys.readouterr().err

@@ -580,11 +580,13 @@ email you a code. Your draft is not stored, so paste it again when you have the 
         # only after the input is known to be checkable.
         cert_id = secrets.token_urlsafe(12)
         delete_key = secrets.token_urlsafe(24)
-        if not storage.create(f"codes/{_sha(code)}", cert_id.encode()):
-            raise UserError("That access code has already been used.", 409)
         meta = {"name": name, "entries": entries, "excluded": excluded, "links_total": len(pairs),
                 "batch_size": BATCH_SIZE, "created": utc_now(), "delete_hash": _sha(delete_key)}
+        # Write the job first, so a storage failure here leaves the code unspent.
         storage.put(f"jobs/{cert_id}.json", json.dumps(meta, ensure_ascii=False).encode("utf-8"), "application/json")
+        if not storage.create(f"codes/{_sha(code)}", cert_id.encode()):
+            storage.delete(f"jobs/{cert_id}.json")
+            raise UserError("That access code has already been used.", 409)
         share, delete = f"/c/{cert_id}", f"/c/{cert_id}/delete?key={delete_key}"
         return _page("Certificate started", f"""<h1>Your certificate is on its way</h1>
 <p class="lede">{plural(len(entries), 'claim')} to check. Open the certificate to watch it fill in; it takes about
@@ -700,7 +702,7 @@ This cannot be undone.</p>
         session_id = str(session.get("id") or "")
         if not re.fullmatch(r"cs_[A-Za-z0-9_]{1,200}", session_id):
             return reply(400, "no session id")
-        if session.get("payment_status") not in (None, "paid", "no_payment_required"):
+        if session.get("payment_status") not in ("paid", "no_payment_required"):
             return reply(200, "not paid")
         storage = self._storage()
         code = secrets.token_urlsafe(9)
