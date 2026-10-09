@@ -1,6 +1,6 @@
 ---
 name: catch-fabricated-citation
-description: Asked to check a research note's citations before it goes to a team, the agent runs cited and reports the wrong date, the dead link and the paraphrase instead of vouching for every claim.
+description: Asked to check a research note's citations before it goes to a team, the agent runs cited (with --proxy-from-env inside the sandbox) and reports the wrong date, the dead link and the paraphrase instead of vouching for every claim, with the skill's "N of M claims verified against source" line.
 tags: [core, network]
 plugins: ["../.."]
 runs: 3
