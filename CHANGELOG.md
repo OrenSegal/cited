@@ -7,6 +7,8 @@
 - Markdown drafts as input: `cited draft.md` finds every inline link, works out which claim each one supports, and checks those pairs. Links with no claim attached (a bare "here", a bibliography entry, a relative path) are listed, never fetched, and never fail the run. `--extract-only` prints the pairs without touching the network. In `--json`, results gain `line` and `bucket`, and the report gains a `draft` object.
 - `--certificate PATH` writes an HTML certificate of the run, for a draft or a claims file.
 - The extractor (`extract.py`), its regression tests and the certificate (`certificate.py`) come from receipts by Oren Segal (MIT), a standalone tool that turned prose with links into claim/source pairs and wrote a certificate. receipts' own fetcher, tiering and specifics audit were not ported: cited's `safe_fetch`, `check_source` and specifics check already cover them.
+- `hosted/`: a stdlib web front end, deployable as a Vercel Python function (`api/index.py`, `vercel.json`). A free link check (dead and redirected sources, first 25 links, nothing stored) and a certificate gated by single-use access codes, stored locally or in Supabase Storage and served at `/c/{id}`. See `hosted/README.md`.
+- `verify_claims.check_entries` runs the check for a list of entries and returns the report rows; `main()` uses it. `certificate.render` takes `footer_link`, which signs the footer "Checked by cited" with a link. `safe_fetch.fetch_page` takes `keep_body`, which returns the raw body in `extra`.
 
 ### Fixed
 

@@ -358,9 +358,11 @@ def _retry_after_seconds(value: str | None) -> float | None:
     return max(0.0, when.timestamp() - time.time())
 
 
-def fetch_page(url: str, timeout: float, policy: FetchPolicy | None = None) -> FetchResult:
+def fetch_page(url: str, timeout: float, policy: FetchPolicy | None = None, *,
+               keep_body: bool = False) -> FetchResult:
     """One guarded GET. Never raises for network, policy or content problems;
-    they come back in FetchResult.error."""
+    they come back in FetchResult.error. `keep_body` also returns the raw
+    body bytes and header charset in `extra` ("body", "charset")."""
     policy = policy or FetchPolicy()
     problem = url_problem(url, policy)
     if problem is None and policy.use_env_proxy:
@@ -403,5 +405,7 @@ def fetch_page(url: str, timeout: float, policy: FetchPolicy | None = None) -> F
 
     raw_type = headers.get("Content-Type") or ""
     kind = classify(headers.get_content_type() if raw_type else "", body)
+    charset = headers.get_content_charset() if raw_type else None
+    extra = {"body": body, "charset": charset} if keep_body else {}
     return FetchResult(status=status, final_url=final_url, content_type=raw_type, kind=kind, truncated=truncated,
-                       text=body_text(kind, body, headers.get_content_charset() if raw_type else None))
+                       text=body_text(kind, body, charset), extra=extra)

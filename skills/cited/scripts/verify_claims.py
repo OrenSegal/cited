@@ -330,6 +330,49 @@ def _check_entry(index: int, entry: dict[str, Any], fetcher: Fetcher) -> Verdict
                        internal_error=True)
 
 
+def check_entries(entries: list[dict[str, Any]], fetcher: Fetcher, *, concurrency: int = DEFAULT_CONCURRENCY,
+                  strict: bool = False, draft: bool = False) -> tuple[list[dict[str, Any]], dict[str, int], list[Verdict]]:
+    """Check every entry and return (rows, counts per tier, verdicts). Rows are
+    the `results` of the JSON report. Each entry is annotated in place with its
+    verification_tier, verification_note and verified_at."""
+    pool = ThreadPoolExecutor(max_workers=concurrency)
+    try:
+        futures = [pool.submit(_check_entry, i, entry, fetcher) for i, entry in enumerate(entries)]
+        verdicts = [future.result() for future in futures]
+    except KeyboardInterrupt:
+        pool.shutdown(wait=False, cancel_futures=True)
+        raise
+    pool.shutdown()
+
+    checked_on = datetime.now(timezone.utc).date().isoformat()
+    counts = {tier: 0 for tier in TIERS}
+    rows: list[dict[str, Any]] = []
+    for index, (entry, verdict) in enumerate(zip(entries, verdicts, strict=True)):
+        counts[verdict.tier] = counts.get(verdict.tier, 0) + 1
+        entry["verification_tier"] = verdict.tier
+        entry["verification_note"] = verdict.note
+        entry["verified_at"] = checked_on
+        rows.append({
+            "index": index,
+            "id": str(entry["id"]) if "id" in entry else f"#{index}",
+            "claim": entry["claim"],
+            "source_url": entry["source_url"],
+            "tier": verdict.tier,
+            "label": TIER_LABELS[verdict.tier],
+            "blocking": is_blocking(verdict.tier, strict),
+            "note": verdict.note,
+            "quoted": round(verdict.quoted, 4),
+            "topical": round(verdict.topical, 4),
+            "checked_against": verdict.checked_against,
+            "http_status": verdict.http_status,
+            "fetched_url": verdict.fetched_url,
+            "snapshot_url": verdict.snapshot_url,
+        })
+        if draft:
+            rows[-1].update(line=entry["line"], bucket=entry["bucket"])
+    return rows, counts, verdicts
+
+
 def _exit_code(reason: str | None, offline_misses: int, internal_errors: int) -> int:
     if reason:
         return EXIT_BLOCKING
@@ -397,42 +440,12 @@ def main(argv: list[str] | None = None) -> int:
                       per_host_delay=args.per_host_delay, cache_dir=args.cache,
                       offline=args.offline, use_wayback=not args.no_wayback)
 
-    pool = ThreadPoolExecutor(max_workers=args.concurrency)
     try:
-        futures = [pool.submit(_check_entry, i, entry, fetcher) for i, entry in enumerate(entries)]
-        verdicts = [future.result() for future in futures]
+        rows, counts, verdicts = check_entries(entries, fetcher, concurrency=args.concurrency,
+                                               strict=args.strict, draft=draft)
     except KeyboardInterrupt:
-        pool.shutdown(wait=False, cancel_futures=True)
         print("\ncited: interrupted", file=sys.stderr)
         return EXIT_INTERRUPTED
-    pool.shutdown()
-
-    checked_on = datetime.now(timezone.utc).date().isoformat()
-    counts = {tier: 0 for tier in TIERS}
-    rows: list[dict[str, Any]] = []
-    for index, (entry, verdict) in enumerate(zip(entries, verdicts, strict=True)):
-        counts[verdict.tier] = counts.get(verdict.tier, 0) + 1
-        entry["verification_tier"] = verdict.tier
-        entry["verification_note"] = verdict.note
-        entry["verified_at"] = checked_on
-        rows.append({
-            "index": index,
-            "id": str(entry["id"]) if "id" in entry else f"#{index}",
-            "claim": entry["claim"],
-            "source_url": entry["source_url"],
-            "tier": verdict.tier,
-            "label": TIER_LABELS[verdict.tier],
-            "blocking": is_blocking(verdict.tier, args.strict),
-            "note": verdict.note,
-            "quoted": round(verdict.quoted, 4),
-            "topical": round(verdict.topical, 4),
-            "checked_against": verdict.checked_against,
-            "http_status": verdict.http_status,
-            "fetched_url": verdict.fetched_url,
-            "snapshot_url": verdict.snapshot_url,
-        })
-        if draft:
-            rows[-1].update(line=entry["line"], bucket=entry["bucket"])
 
     offline_misses = sum(v.offline_miss for v in verdicts)
     internal_errors = sum(v.internal_error for v in verdicts)
