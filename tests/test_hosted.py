@@ -679,3 +679,9 @@ def test_a_used_code_leaves_no_orphan_job(tmp_path, server):
     jobs = set((tmp_path / "data" / "jobs").glob("*.json"))
     assert _post(app, markdown=_cert_draft(server), mode="certificate", code="good-code").status == 409
     assert set((tmp_path / "data" / "jobs").glob("*.json")) == jobs
+
+
+def test_certificate_ids_never_start_with_a_dash(monkeypatch):
+    ids = iter(["-dashfirst123456", "_underfirst12345", "ok0123456789abcd"])
+    monkeypatch.setattr(webapp.secrets, "token_urlsafe", lambda n: next(ids))
+    assert webapp._new_cert_id() == "ok0123456789abcd"

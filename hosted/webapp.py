@@ -66,6 +66,14 @@ PAYMENT_LINK_PLACEHOLDER = "STRIPE_PAYMENT_LINK_TODO"
 CITED_HOME = "https://github.com/OrenSegal/cited"
 CERT_ID = re.compile(r"[A-Za-z0-9_-]{12,32}")
 
+
+def _new_cert_id() -> str:
+    """A random id that never starts with '-', so `recheck --id <id>` cannot read it as a flag."""
+    while True:
+        cert_id = secrets.token_urlsafe(12)
+        if cert_id[0].isalnum():
+            return cert_id
+
 # Certificate jobs. Vercel's Python runtime ends the work when the response is
 # sent, so nothing runs in the background: each visit to a pending /c/{id}
 # checks whole batches of BATCH_SIZE claims (one round of parallel fetches)
@@ -578,7 +586,7 @@ email you a code. Your draft is not stored, so paste it again when you have the 
 
         # Single use: the first request to create this marker wins. Redeemed
         # only after the input is known to be checkable.
-        cert_id = secrets.token_urlsafe(12)
+        cert_id = _new_cert_id()
         delete_key = secrets.token_urlsafe(24)
         meta = {"name": name, "entries": entries, "excluded": excluded, "links_total": len(pairs),
                 "batch_size": BATCH_SIZE, "created": utc_now(), "delete_hash": _sha(delete_key)}
