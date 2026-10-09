@@ -101,7 +101,7 @@ border:1px solid var(--line);border-radius:8px;background:var(--card);color:var(
 textarea::placeholder,input::placeholder{color:var(--mut);opacity:.85}
 textarea{min-height:200px;resize:vertical}
 textarea:focus,input:focus{outline:2px solid var(--focus);outline-offset:1px;border-color:transparent}
-.modes{display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:12px;margin-top:8px;border:0;padding:0}
+.modes{display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:12px;margin:8px 0 0;border:0;padding:0;min-inline-size:0}
 .modes legend{font-weight:600;font-size:15px;margin:22px 0 8px;padding:0}
 .mode{position:relative;display:block;margin:0;padding:16px 16px 16px 46px;border:1px solid var(--line);border-radius:10px;
 background:var(--card);cursor:pointer;font-weight:400}
@@ -119,6 +119,7 @@ background:var(--fg);color:var(--bg);cursor:pointer;text-decoration:none}
 .btn:hover{background:color-mix(in srgb,var(--fg) 85%,var(--bg))}
 .btn.quiet{background:transparent;color:var(--fg);box-shadow:inset 0 0 0 1px var(--line)}
 .why{font-size:14px}
+form+.note{margin-top:40px}
 .panel{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:18px 20px;margin:0 0 16px}
 .panel p{margin:0 0 10px}.panel p:last-child{margin:0}
 .secret{display:block;font:14px/1.5 var(--mono);background:var(--sunk);padding:10px 12px;border-radius:6px;
@@ -251,6 +252,15 @@ class RateLimiter:
         return False
 
 
+def _base_url(headers: dict[str, str]) -> str:
+    """This site's origin as the browser sees it, to show full share links.
+    Empty when the Host header is missing or odd: links then stay relative."""
+    host = headers.get("host", "")
+    if not re.fullmatch(r"[A-Za-z0-9.-]{1,253}(:\d{1,5})?", host):
+        return ""
+    return ("https://" if os.environ.get("VERCEL") else "http://") + host
+
+
 def stripe_signature_ok(payload: bytes, header: str, secret: str, now: float, tolerance: int = STRIPE_TOLERANCE) -> bool:
     """Stripe's scheme: HMAC-SHA256 of "{t}.{payload}" with the endpoint secret, in one or more v1= fields."""
     parts: dict[str, list[str]] = {}
@@ -332,7 +342,7 @@ class App:
                 if not self.limiter.allow(client_ip):
                     return self.error("Too many checks from your address in the last few minutes. "
                                       "Wait ten minutes and try again.", 429, {"Retry-After": str(self.limiter.window)})
-                return self.check(body, content_type)
+                return self.check(body, content_type, _base_url(headers or {}))
             if route == "/stripe/webhook":
                 return self._only(method, "POST") or self.stripe_webhook(body, (headers or {}).get("stripe-signature", ""))
             if route.startswith("/c/") and route.endswith("/delete"):
@@ -445,7 +455,7 @@ from where it stopped the next time anyone opens this link.</p>""",
 
     # Checking
 
-    def check(self, body: bytes, content_type: str) -> Response:
+    def check(self, body: bytes, content_type: str, base_url: str = "") -> Response:
         if not content_type.lower().startswith("application/x-www-form-urlencoded"):
             raise UserError("Send the form from the upload page.", 415)
         if len(body) > MAX_FORM_BYTES:
@@ -453,7 +463,7 @@ from where it stopped the next time anyone opens this link.</p>""",
         form = {k: v[0] for k, v in urllib.parse.parse_qs(body.decode("utf-8", "replace")).items()}
         name, markdown = self.load_document(form.get("markdown", ""), form.get("url", "").strip())
         if form.get("mode") == "certificate":
-            return self.start_certificate(name, markdown, form.get("code", "").strip())
+            return self.start_certificate(name, markdown, form.get("code", "").strip(), base_url)
         return self.run_link_check(name, markdown)
 
     def load_document(self, markdown: str, url: str) -> tuple[str, str]:
@@ -547,7 +557,7 @@ email you a code. Your draft is not stored, so paste it again when you have the 
 <div class="actions"><a class="btn" href="{_esc(self.payment_link)}">Buy a certificate, $9</a>
 <a href="/">Run the free link check instead</a></div>""", 402)
 
-    def start_certificate(self, name: str, markdown: str, code: str) -> Response:
+    def start_certificate(self, name: str, markdown: str, code: str, base_url: str = "") -> Response:
         if not self.access_codes and not self.stripe_secret:
             raise UserError("Certificates are not on sale yet.", 503)
         if not code:
@@ -580,10 +590,10 @@ email you a code. Your draft is not stored, so paste it again when you have the 
 <p class="lede">{len(entries)} claim(s) to check. Open the certificate to watch it fill in; it takes about
 a minute for every 40 sources.</p>
 <div class="panel"><p><b>Share link.</b> Anyone with it can read the certificate.</p>
-<a class="secret" href="{share}">{share}</a></div>
+<a class="secret" href="{share}">{_esc(base_url + share)}</a></div>
 <div class="panel"><p><b>Private delete link.</b> Save it now: it is shown only once and cannot be recovered.
 Anyone with it can delete the certificate.</p>
-<a class="secret" href="{_esc(delete)}">{_esc(delete)}</a></div>
+<a class="secret" href="{_esc(delete)}">{_esc(base_url + delete)}</a></div>
 <div class="actions"><a class="btn" href="{share}">Open the certificate</a></div>""",
                      head='<meta name="robots" content="noindex">')
 

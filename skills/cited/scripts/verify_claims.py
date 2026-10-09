@@ -120,7 +120,7 @@ def check_source(url: str, claim: str, fetcher: Fetcher) -> Verdict:
             tier, note, quoted, topical = _verdict_from_text(claim, archived, fetcher.policy.max_bytes)
             why = "unreachable" if live_failed else "yielded no text"
             suffix = f"checked against Wayback archive ({snapshot_date or 'undated'}), live page {why}"
-            return Verdict(tier, f"{note} — {suffix}" if note else suffix, quoted, topical,
+            return Verdict(tier, f"{note}; {suffix}" if note else suffix, quoted, topical,
                            checked_against="wayback", snapshot_url=snapshot_url, **base)
         if live_failed and archived_ok and archived.kind in UNREADABLE_KINDS:
             what = "a PDF" if archived.kind == "pdf" else "non-text content"
