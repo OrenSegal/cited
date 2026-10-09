@@ -185,3 +185,64 @@ class BareUrls(unittest.TestCase):
               "- Draft advisory allows flat fees only (sla.example.gov/advisory, marked DRAFT).\n")
         self.assertEqual([p.claim for p in extract(md, "t")], [
             "Venue minimums are $1-4k in the city.", "Draft advisory allows flat fees only."])
+
+
+class BareUrlClauses(unittest.TestCase):
+    """Found on a real 113-claim run: a sentence or cell packing several
+    sourced facts was checked whole against each source, so every source
+    failed on the others' specifics. Each claim is now the clause nearest
+    its citation."""
+
+    def claims(self, md):
+        return [(p.claim, p.source_url) for p in extract(md, "t") if p.bucket != "excluded"]
+
+    def test_semicolon_clauses_go_to_their_own_sources(self):
+        md = ('- **Directories:** OpenAI bans undisclosed "behavioral profiling" and scraping [V] https://a.example/o ; '
+              'Muse bans "extract or reconstruct data" and inferring attributes (4.4(iv)) [V] https://b.example/m ; '
+              'Anthropic\'s policy 1.C requires protecting "the privacy interests" [V] https://c.example/p . '
+              "Double-check that [U].\n")
+        self.assertEqual(self.claims(md), [
+            ('Directories: OpenAI bans undisclosed "behavioral profiling" and scraping', "https://a.example/o"),
+            ('Muse bans "extract or reconstruct data" and inferring attributes (4.4(iv))', "https://b.example/m"),
+            ('Anthropic\'s policy 1.C requires protecting "the privacy interests".', "https://c.example/p"),
+        ])
+
+    def test_sentences_after_bold_lead_ins_are_split(self):
+        md = ("3. **Both stores ban the $299 report.** Lemon Squeezy prohibits services of any kind "
+              "[V] https://a.example/l . Gumroad prohibits consulting firms and mailing lists [V] https://b.example/g .\n")
+        self.assertEqual(self.claims(md), [
+            ("Lemon Squeezy prohibits services of any kind.", "https://a.example/l"),
+            ("Gumroad prohibits consulting firms and mailing lists.", "https://b.example/g"),
+        ])
+
+    def test_a_lone_citation_keeps_its_whole_sentence(self):
+        md = "Shovels has 500 free credits a month, then $599/mo (https://a.example/s), which is $0.024 a record.\n"
+        self.assertEqual(self.claims(md), [
+            ("Shovels has 500 free credits a month, then $599/mo, which is $0.024 a record.", "https://a.example/s")])
+
+    def test_a_short_lead_in_runs_on_past_its_citation(self):
+        md = ('The plugin guidelines (https://a.example/g) say plugins "must not display subscription plans".\n')
+        self.assertEqual(self.claims(md), [
+            ('The plugin guidelines say plugins "must not display subscription plans".', "https://a.example/g")])
+
+    def test_back_to_back_citations_share_a_claim(self):
+        md = "- No public vendor intake form was found [V] https://a.example/m , https://b.example/r\n"
+        self.assertEqual([c for c, _ in self.claims(md)], ["No public vendor intake form was found"] * 2)
+
+    def test_table_cell_clauses_are_scoped(self):
+        md = ("| Venue | Fit | Notes |\n|---|---|---|\n"
+              "| Apify | 4 | creator gets 80 percent of fees [V] https://a.example/t ; "
+              "payouts start from $20 via PayPal [V] https://b.example/p | Skip |\n")
+        self.assertEqual(self.claims(md), [
+            ("creator gets 80 percent of fees", "https://a.example/t"),
+            ("payouts start from $20 via PayPal", "https://b.example/p"),
+        ])
+
+    def test_a_url_in_a_label_cell_takes_the_rows_prose(self):
+        md = ("| Product | Price | Relevance |\n|---|---|---|\n"
+              "| OpeningSignal (https://a.example/pricing) | $50/mo for 30 ZIPs | Closest rival |\n")
+        self.assertEqual(self.claims(md), [("$50/mo for 30 ZIPs", "https://a.example/pricing")])
+
+    def test_a_list_of_dated_example_urls_is_not_a_claim(self):
+        md = "- **Example URLs:** https://a.example/1 (2017-04-19); https://b.example/2 (2023-07-10).\n"
+        self.assertEqual([p.bucket for p in extract(md, "t")], ["excluded", "excluded"])

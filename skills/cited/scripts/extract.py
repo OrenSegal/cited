@@ -58,7 +58,7 @@ HEDGE = re.compile(
 
 # Sentence splitter that does not detonate on "U.S.", "40.5%", "e.g." or URLs.
 _ABBREV = r"(?<!\b[A-Z])(?<!\be\.g)(?<!\bi\.e)(?<!\betc)(?<!\bvs)(?<!\bMr)(?<!\bMs)(?<!\bDr)(?<!\bSt)(?<!\bU\.S)(?<!\bNo)"
-_SENT_SPLIT = re.compile(_ABBREV + r"(?<=[.!?])[\"'”’)\]]*\s+(?=[*_>]{0,2}[A-Z\"“'‘\[(])")
+_SENT_SPLIT = re.compile(_ABBREV + r"(?<=[.!?])[\"'”’)\]*_]*\s+(?=[*_>]{0,2}[A-Z\"“'‘\[(])")
 
 
 @dataclass
@@ -358,19 +358,104 @@ def _table_rows(block: str) -> Iterator[tuple[int, list[str]]] | None:
             for i, line in enumerate(lines) if i > 1)
 
 
+MARK = "\x00"  # stands in for a cut-out citation while segmenting
+MIN_CLAIM_WORDS = 4
+
+
+def _words(text: str) -> int:
+    return sum(1 for token in text.split() if re.search(r"\w", token))
+
+
+def _segment_claims(text: str, cuts: list[tuple[int, int]]) -> list[str]:
+    """One claim per cut citation in `text`, scoped to the segment it closes.
+
+    Research notes pack several sourced facts into one sentence or cell:
+    "A bans X [V] url1 ; B bans Y [V] url2". Checking the whole sentence
+    against url1 asks url1's page for B's facts too, and the claim fails on
+    specifics it never made. So the text is cut into clauses at ';' and
+    sentence ends, and each clause's text goes to its nearest citation: the
+    one that follows it, or, for the text after a clause's last citation,
+    the one before it ("X has 500 credits (url), which is cheap"). A segment
+    under four words borrows the next stretch ("The guidelines (url) say
+    ...") and then earlier clauses, never crossing another citation. A
+    citation directly after another (url1 , url2) shares its claim. With no
+    usable segment, a lone citation takes the whole text; one of several gets
+    "" (the caller decides), because the whole text is then several claims
+    and could never pass against one source.
+    """
+    order = sorted(range(len(cuts)), key=lambda i: cuts[i])
+    groups: list[list[int]] = []  # overlapping cuts (two URLs in one bracket) are one citation
+    for i in order:
+        if groups and cuts[i][0] < max(cuts[j][1] for j in groups[-1]):
+            groups[-1].append(i)
+        else:
+            groups.append([i])
+    clean, marks, pos = [], [], 0
+    for group in groups:
+        lo, hi = min(cuts[j][0] for j in group), max(cuts[j][1] for j in group)
+        clean.append(text[pos:lo])
+        marks.append(sum(map(len, clean)))
+        clean.append(MARK)
+        pos = hi
+    clean.append(text[pos:])
+    flat = "".join(clean)
+
+    def tidy(span: str) -> str:
+        return re.sub(r"^[\s.]+", "", _without(span.replace(MARK, " "), []))
+
+    # Clause boundaries: after a ';' and at each sentence start; a clause ends
+    # at a ';' or a sentence's last character.
+    starts = sorted({i + 1 for i, ch in enumerate(flat) if ch == ";"}
+                    | {m.end() for m in _SENT_SPLIT.finditer(flat)})
+    ends = sorted({i for i, ch in enumerate(flat) if ch == ";"} | {m.start() for m in _SENT_SPLIT.finditer(flat)})
+
+    claims: dict[int, str] = {}
+    previous = ""
+    for k, mark in enumerate(marks):
+        floor = marks[k - 1] + 1 if k else 0
+        start = max([floor, *(b for b in starts if b <= mark)])
+        end = mark
+        if k and not _words(flat[start:end]):
+            claim = previous  # "url1 , url2": the same claim, two sources
+        else:
+            clause_end = min([len(flat), *(e for e in ends if e > mark)])
+            nxt = marks[k + 1] if k + 1 < len(marks) else len(flat)
+            if nxt >= clause_end or _words(flat[start:end]) < MIN_CLAIM_WORDS:
+                # The last citation in its clause takes the rest of the clause
+                # ("X has 500 credits (url), which is cheap"); a short lead-in
+                # ("The guidelines (url) say ...") runs on to the next citation.
+                end = min(nxt, clause_end)
+            while _words(flat[start:end]) < MIN_CLAIM_WORDS and start > floor:
+                start = max([floor, *(b for b in starts if b < start)])
+            claim = tidy(flat[start:end])
+            if _words(claim) < MIN_CLAIM_WORDS:
+                claim = _without(text, cuts) if len(groups) == 1 else ""
+        previous = claim
+        for j in groups[k]:
+            claims[j] = claim
+    return [claims[i] for i in range(len(cuts))]
+
+
 def _bare_pairs(block: str, start_line: int, biblio: bool) -> Iterator[tuple[int, str, str, str, Bucket, str, bool]]:
     """(line, claim, url, link_text, bucket, reason, scheme_inferred) for each bare URL in a block."""
     rows = _table_rows(block)
     if rows is not None:
         for offset, cells in rows:
-            claim = next((_without(c, []) for c in cells
-                          if not _bare_urls(c) and len(_without(c, []).split()) >= 3), "")
+            row_claim = next((_without(c, []) for c in cells
+                              if not _bare_urls(c) and len(_without(c, []).split()) >= 3), "")
             for cell in cells:
-                for _, _, url, inferred in _bare_urls(cell):
+                found = _bare_urls(cell)
+                scoped = _segment_claims(cell, [_citation_span(cell, s, e) for s, e, _, _ in found])
+                for (_, _, url, inferred), own in zip(found, scoped, strict=True):
+                    # The URL's own cell, scoped to its segment; a label cell
+                    # ("Acme (url)") is too short, so the row's prose cell stands in.
+                    claim = own if _words(own) >= MIN_CLAIM_WORDS else row_claim
+                    if _words(claim) < MIN_CLAIM_WORDS:
+                        claim = ""
                     if biblio:
                         yield (start_line + offset, "", url, url, "excluded",
                                "under a references/sources heading: bibliography, not an in-line claim", inferred)
-                    elif len(claim.split()) < 4:
+                    elif not claim:
                         yield start_line + offset, claim, url, url, "excluded", "table row with no claim cell", inferred
                     else:
                         yield (start_line + offset, claim, url, url, "checkable",
@@ -388,20 +473,20 @@ def _bare_pairs(block: str, start_line: int, biblio: bool) -> Iterator[tuple[int
                 continue
             text = unit[lo:hi]
             cuts = [_citation_span(text, s - lo, e - lo) for s, e, _, _ in here]
-            claim = _without(text, cuts)
-            bucket: Bucket = "checkable"
-            reason = "sentence with a bare source URL"
-            if len(claim.split()) < 4:
-                prev = next((_without(unit[a:b], []) for a, b in reversed(sentences[:sentences.index((lo, hi))])
-                             if len(_without(unit[a:b], []).split()) >= 4), "")
-                claim, bucket, reason = (
-                    (prev, "repaired", "trailing citation: claim taken from the preceding sentence") if prev
-                    else (claim, "excluded", "bare URL with no claim attached; cannot pass a containment check"))
-            if biblio:
-                bucket, reason = "excluded", "under a references/sources heading: bibliography, not an in-line claim"
-            for s, _, url, inferred in here:
+            for (s, _, url, inferred), claim in zip(here, _segment_claims(text, cuts), strict=True):
+                bucket: Bucket = "checkable"
+                reason = "sentence with a bare source URL"
+                if _words(claim) < MIN_CLAIM_WORDS:
+                    prev = next((_without(unit[a:b], []) for a, b in reversed(sentences[:sentences.index((lo, hi))])
+                                 if len(_without(unit[a:b], []).split()) >= 4), "")
+                    claim, bucket, reason = (
+                        (prev, "repaired", "trailing citation: claim taken from the preceding sentence") if prev
+                        else (claim, "excluded", "bare URL with no claim attached; cannot pass a containment check"))
+                if biblio:
+                    claim, bucket = "", "excluded"
+                    reason = "under a references/sources heading: bibliography, not an in-line claim"
                 line = start_line + offset + unit[:s].count("\n")
-                yield line, claim if bucket != "excluded" or not biblio else "", url, url, bucket, reason, inferred
+                yield line, claim, url, url, bucket, reason, inferred
 
 
 def extract(markdown: str, doc_id: str = "doc") -> list[Pair]:
