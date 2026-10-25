@@ -48,7 +48,7 @@ def test_a_draft_whose_only_links_are_excluded_passes(tmp_path, server, capsys):
     draft = _draft(tmp_path, server, "Read more [here]({base}/x).\n\n## Sources\n\n- [Annual report]({base}/a)\n")
     assert vc.main([draft, *LOCAL]) == vc.EXIT_OK
     assert server.total_hits == 0
-    assert "2 link(s) in the draft were not checked" in capsys.readouterr().out
+    assert "2 links in the draft were not checked" in capsys.readouterr().out
 
 
 def test_extract_only_never_touches_the_network(tmp_path, server, capsys):
@@ -116,7 +116,15 @@ def test_certificate_links_only_http_sources():
 
 def test_certificate_verdict_follows_cited_blocking_rules():
     review = {"tier": "low_match", "claim": "c", "source_url": "https://a.test", "quoted": 0.1, "topical": 0.5}
-    assert "need a person to check" in render("d", [review], "t")
+    assert "1 claim needs a person to check it" in render("d", [review], "t")
     unchecked = dict(review, tier="unverified")
-    assert "were never checked, nothing else blocks" in render("d", [unchecked], "t")
-    assert "1 claim(s) were never checked<" in render("d", [unchecked], "t", strict=True)
+    assert "1 claim was never checked, nothing else blocks" in render("d", [unchecked], "t")
+    assert "1 claim was never checked<" in render("d", [unchecked], "t", strict=True)
+
+
+def test_certificate_counts_read_as_english():
+    review = {"tier": "low_match", "claim": "c", "source_url": "https://a.test", "quoted": 0.1, "topical": 0.5}
+    two = render("d", [review, dict(review, claim="d")], "t", links_total=1)
+    assert "2 claims need a person to check them" in two
+    assert "1 link found" in two and "2 claims checked" in two
+    assert "(s)" not in two.replace("http(s)", "")

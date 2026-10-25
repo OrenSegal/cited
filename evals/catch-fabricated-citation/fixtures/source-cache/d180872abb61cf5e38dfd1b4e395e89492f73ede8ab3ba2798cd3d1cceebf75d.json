@@ -1,0 +1,19 @@
+{
+ "cache_format": 1,
+ "data": {
+  "blocked": false,
+  "content_type": "",
+  "error": "HTTP 404",
+  "extra": {},
+  "final_url": "https://www.rfc-editor.org/rfc/rfc99999.txt",
+  "kind": "",
+  "retry_after": null,
+  "status": 404,
+  "text": "",
+  "transient": false,
+  "truncated": false
+ },
+ "kind": "page",
+ "stored_at": "2026-10-09T17:34:02Z",
+ "url": "https://www.rfc-editor.org/rfc/rfc99999.txt"
+}

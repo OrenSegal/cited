@@ -53,6 +53,16 @@ def blocking_reason(counts: dict[str, int], strict: bool = False) -> str | None:
     return None
 
 
+def plural(n: int, singular: str, many: str | None = None) -> str:
+    """ "1 claim", "2 claims": a count with its noun, for user-facing text."""
+    return f"{n} {singular if n == 1 else (many or singular + 's')}"
+
+
+def agree(n: int, one: str, many: str) -> str:
+    """The form of a word that agrees with a count: agree(1, "was", "were")."""
+    return one if n == 1 else many
+
+
 def is_blocking(tier: str, strict: bool = False) -> bool:
     return tier in TIER_DISQUALIFYING or tier in TIER_NEEDS_REVIEW or (strict and tier in TIER_UNCHECKED)
 

@@ -126,3 +126,123 @@ class PatternsFixture(unittest.TestCase):
         for p in pairs:
             if p.bucket != "excluded":
                 self.assertGreaterEqual(len(p.claim.split()), 4, p)
+
+
+class BareUrls(unittest.TestCase):
+    """Research notes cite with bare URLs, not [text](url). Found on a real run:
+    two of the owner's notes, 21 and 8 sources, extracted to zero pairs."""
+
+    def pairs(self, md):
+        return [(p.bucket, p.claim, p.source_url) for p in extract(md, "t")]
+
+    def test_table_row_claim_comes_from_its_prose_cell(self):
+        md = ("| Fact | Grade | Source |\n|---|---|---|\n"
+              "| Operator is Example Holdings, Inc. | [V] | https://example.com/legal |\n"
+              "| Funding: Series C $1B at $10B | [S] | https://a.example/x , https://b.example/y |\n")
+        self.assertEqual(self.pairs(md), [
+            ("checkable", "Operator is Example Holdings, Inc.", "https://example.com/legal"),
+            ("checkable", "Funding: Series C $1B at $10B", "https://a.example/x"),
+            ("checkable", "Funding: Series C $1B at $10B", "https://b.example/y"),
+        ])
+
+    def test_bracketed_citation_is_cut_from_the_claim(self):
+        md = "- The files site shows only a heading without auth [V: https://files.example.com].\n"
+        self.assertEqual(self.pairs(md), [
+            ("checkable", "The files site shows only a heading without auth.", "https://files.example.com")])
+
+    def test_scheme_less_reference_in_parentheses_is_inferred_and_labelled(self):
+        md = "Luma Featured lifts registrations up to 5x (help.example.com/p/featuring).\n"
+        (pair,) = extract(md, "t")
+        self.assertEqual(pair.source_url, "https://help.example.com/p/featuring")
+        self.assertIn("scheme-inferred", pair.tags)
+        self.assertIn("https:// assumed", pair.reason)
+        self.assertEqual(pair.claim, "Luma Featured lifts registrations up to 5x.")
+
+    def test_bare_hostnames_and_file_paths_are_not_sources(self):
+        md = "The web workspace at app.example.com reads `docs/setup.md` and (src/app/main.py) on start.\n"
+        self.assertEqual(extract(md, "t"), [])
+
+    def test_sources_list_is_bibliography(self):
+        md = "## Sources\n- https://example.com/a\n- https://example.com/b (a clone tutorial)\n"
+        self.assertEqual([p.bucket for p in extract(md, "t")], ["excluded", "excluded"])
+
+    def test_url_alone_after_a_claim_repairs_from_the_previous_sentence(self):
+        md = "Revenue grew 40% in 2025 at Example Corp. Source: <https://example.com/report>\n"
+        self.assertEqual(self.pairs(md), [
+            ("repaired", "Revenue grew 40% in 2025 at Example Corp.", "https://example.com/report")])
+
+    def test_list_item_that_is_only_a_url_is_excluded(self):
+        md = "- https://example.com/a\n"
+        self.assertEqual([p.bucket for p in extract(md, "t")], ["excluded"])
+
+    def test_inline_links_and_code_are_not_counted_twice(self):
+        md = ("The [2024 report](https://example.com/r) found 40% growth.\n\n"
+              "Run `curl https://example.com/api` to see the 2025 numbers.\n")
+        self.assertEqual([p.source_url for p in extract(md, "t")], ["https://example.com/r"])
+
+    def test_each_list_item_is_its_own_claim(self):
+        md = ("- Venue minimums are $1-4k in the city (venues.example/blog/minimums).\n"
+              "- Draft advisory allows flat fees only (sla.example.gov/advisory, marked DRAFT).\n")
+        self.assertEqual([p.claim for p in extract(md, "t")], [
+            "Venue minimums are $1-4k in the city.", "Draft advisory allows flat fees only."])
+
+
+class BareUrlClauses(unittest.TestCase):
+    """Found on a real 113-claim run: a sentence or cell packing several
+    sourced facts was checked whole against each source, so every source
+    failed on the others' specifics. Each claim is now the clause nearest
+    its citation."""
+
+    def claims(self, md):
+        return [(p.claim, p.source_url) for p in extract(md, "t") if p.bucket != "excluded"]
+
+    def test_semicolon_clauses_go_to_their_own_sources(self):
+        md = ('- **Directories:** OpenAI bans undisclosed "behavioral profiling" and scraping [V] https://a.example/o ; '
+              'Muse bans "extract or reconstruct data" and inferring attributes (4.4(iv)) [V] https://b.example/m ; '
+              'Anthropic\'s policy 1.C requires protecting "the privacy interests" [V] https://c.example/p . '
+              "Double-check that [U].\n")
+        self.assertEqual(self.claims(md), [
+            ('Directories: OpenAI bans undisclosed "behavioral profiling" and scraping', "https://a.example/o"),
+            ('Muse bans "extract or reconstruct data" and inferring attributes (4.4(iv))', "https://b.example/m"),
+            ('Anthropic\'s policy 1.C requires protecting "the privacy interests".', "https://c.example/p"),
+        ])
+
+    def test_sentences_after_bold_lead_ins_are_split(self):
+        md = ("3. **Both stores ban the $299 report.** Lemon Squeezy prohibits services of any kind "
+              "[V] https://a.example/l . Gumroad prohibits consulting firms and mailing lists [V] https://b.example/g .\n")
+        self.assertEqual(self.claims(md), [
+            ("Lemon Squeezy prohibits services of any kind.", "https://a.example/l"),
+            ("Gumroad prohibits consulting firms and mailing lists.", "https://b.example/g"),
+        ])
+
+    def test_a_lone_citation_keeps_its_whole_sentence(self):
+        md = "Shovels has 500 free credits a month, then $599/mo (https://a.example/s), which is $0.024 a record.\n"
+        self.assertEqual(self.claims(md), [
+            ("Shovels has 500 free credits a month, then $599/mo, which is $0.024 a record.", "https://a.example/s")])
+
+    def test_a_short_lead_in_runs_on_past_its_citation(self):
+        md = ('The plugin guidelines (https://a.example/g) say plugins "must not display subscription plans".\n')
+        self.assertEqual(self.claims(md), [
+            ('The plugin guidelines say plugins "must not display subscription plans".', "https://a.example/g")])
+
+    def test_back_to_back_citations_share_a_claim(self):
+        md = "- No public vendor intake form was found [V] https://a.example/m , https://b.example/r\n"
+        self.assertEqual([c for c, _ in self.claims(md)], ["No public vendor intake form was found"] * 2)
+
+    def test_table_cell_clauses_are_scoped(self):
+        md = ("| Venue | Fit | Notes |\n|---|---|---|\n"
+              "| Apify | 4 | creator gets 80 percent of fees [V] https://a.example/t ; "
+              "payouts start from $20 via PayPal [V] https://b.example/p | Skip |\n")
+        self.assertEqual(self.claims(md), [
+            ("creator gets 80 percent of fees", "https://a.example/t"),
+            ("payouts start from $20 via PayPal", "https://b.example/p"),
+        ])
+
+    def test_a_url_in_a_label_cell_takes_the_rows_prose(self):
+        md = ("| Product | Price | Relevance |\n|---|---|---|\n"
+              "| OpeningSignal (https://a.example/pricing) | $50/mo for 30 ZIPs | Closest rival |\n")
+        self.assertEqual(self.claims(md), [("$50/mo for 30 ZIPs", "https://a.example/pricing")])
+
+    def test_a_list_of_dated_example_urls_is_not_a_claim(self):
+        md = "- **Example URLs:** https://a.example/1 (2017-04-19); https://b.example/2 (2023-07-10).\n"
+        self.assertEqual([p.bucket for p in extract(md, "t")], ["excluded", "excluded"])

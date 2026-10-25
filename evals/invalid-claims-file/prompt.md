@@ -1,7 +1,7 @@
 ---
 name: invalid-claims-file
-description: Given a malformed claims list, the agent runs cited, reads its input errors (exit 2) and reports exactly what is wrong instead of claiming the citations were checked.
-tags: [core, offline]
+description: Given a malformed claims list, the agent runs cited on the file, reads its input errors (exit 2) and reports exactly what is wrong instead of claiming the citations were checked. Mostly a CLI-contract case; ran-cited is scored in both arms because an agent can spot the two errors by eye, so without it the case would pass with no plugin at all.
+tags: [core, offline, cli]
 plugins: ["../.."]
 runs: 3
 expected_outcome: The agent reports that entry 1 has no source_url and entry 2's claim is not text, and does not say any citation was verified.
