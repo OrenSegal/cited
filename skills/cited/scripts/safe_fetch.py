@@ -244,6 +244,30 @@ class _GuardedHTTPSHandler(urllib.request.HTTPSHandler):
         return self.do_open(self._conn_class, req, context=self._context)
 
 
+def _keep_alive(base: type) -> type:
+    """urllib always sends `Connection: close`. Some proxies (Claude Code's
+    sandbox proxy among them) then drop the tail of the response when the
+    server closes, and the body comes back short. Asking for keep-alive lets
+    the response end by its own framing instead."""
+    class KeepAlive(base):  # type: ignore[misc, valid-type]
+        def putheader(self, header: str, *values: Any) -> None:
+            if header.lower() == "connection":
+                values = ("keep-alive",)
+            super().putheader(header, *values)
+
+    return KeepAlive
+
+
+class _ProxyHTTPHandler(urllib.request.HTTPHandler):
+    def http_open(self, req):
+        return self.do_open(_keep_alive(http.client.HTTPConnection), req)
+
+
+class _ProxyHTTPSHandler(urllib.request.HTTPSHandler):
+    def https_open(self, req):
+        return self.do_open(_keep_alive(http.client.HTTPSConnection), req, context=self._context)
+
+
 class _GuardedRedirectHandler(urllib.request.HTTPRedirectHandler):
     max_redirections = 1_000  # our own hop count below is the real limit
 
@@ -288,8 +312,8 @@ def _build_opener(policy: FetchPolicy) -> urllib.request.OpenerDirector:
     if policy.use_env_proxy:
         handlers: list[urllib.request.BaseHandler] = [
             urllib.request.ProxyHandler(),
-            urllib.request.HTTPHandler(),
-            urllib.request.HTTPSHandler(context=ssl.create_default_context()),
+            _ProxyHTTPHandler(),
+            _ProxyHTTPSHandler(context=ssl.create_default_context()),
         ]
     else:
         handlers = [_GuardedHTTPHandler(policy), _GuardedHTTPSHandler(policy)]
@@ -334,9 +358,11 @@ def _retry_after_seconds(value: str | None) -> float | None:
     return max(0.0, when.timestamp() - time.time())
 
 
-def fetch_page(url: str, timeout: float, policy: FetchPolicy | None = None) -> FetchResult:
+def fetch_page(url: str, timeout: float, policy: FetchPolicy | None = None, *,
+               keep_body: bool = False) -> FetchResult:
     """One guarded GET. Never raises for network, policy or content problems;
-    they come back in FetchResult.error."""
+    they come back in FetchResult.error. `keep_body` also returns the raw
+    body bytes and header charset in `extra` ("body", "charset")."""
     policy = policy or FetchPolicy()
     problem = url_problem(url, policy)
     if problem is None and policy.use_env_proxy:
@@ -379,5 +405,7 @@ def fetch_page(url: str, timeout: float, policy: FetchPolicy | None = None) -> F
 
     raw_type = headers.get("Content-Type") or ""
     kind = classify(headers.get_content_type() if raw_type else "", body)
+    charset = headers.get_content_charset() if raw_type else None
+    extra = {"body": body, "charset": charset} if keep_body else {}
     return FetchResult(status=status, final_url=final_url, content_type=raw_type, kind=kind, truncated=truncated,
-                       text=body_text(kind, body, headers.get_content_charset() if raw_type else None))
+                       text=body_text(kind, body, charset), extra=extra)

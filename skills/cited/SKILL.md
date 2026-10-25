@@ -21,7 +21,7 @@ Do **not** reach for this to fact-check claims that don't cite a specific URL �
 ## Workflow
 
 1. Produce your artifact's claims as a flat JSON array: `[{"id": "...", "claim": "...", "source_url": "..."}, ...]`. `id` is whatever your artifact uses to key this claim back to its full record (a lead's name, a section heading — anything stable).
-2. Run `cited claims.json --annotate-out verified.json`. The `cited` command is on the Bash tool's PATH while the plugin is enabled; without the plugin, run `python3 scripts/verify_claims.py` from this skill directory with the same arguments. Add `--json` for a machine-readable report on stdout, and `cited --help` lists every flag.
+2. Run `cited claims.json --annotate-out verified.json`. The `cited` command is on the Bash tool's PATH while the plugin is enabled; without the plugin, run `python3 scripts/verify_claims.py` from this skill directory with the same arguments. Add `--json` for a machine-readable report on stdout, and `cited --help` lists every flag. If `HTTPS_PROXY` is set, as it is in Claude Code's sandboxed Bash, add `--proxy-from-env`: the sandbox has no direct route out, so without it every source fails to resolve and comes back `broken`. Do not read those `broken` results as dead links.
 3. Read the tier written back onto each entry:
    - `verified` — substantially quoted from the live (or archived) page. Ship it.
    - `low_match` — the claim shares vocabulary with the page but is not quoted from it. This is not evidence the claim is on the page: a made-up claim about a real company also shares the company's name with its site. Do not ship it as is. A human must check the claim against the page, or you tighten the claim to wording the page actually contains and re-run.

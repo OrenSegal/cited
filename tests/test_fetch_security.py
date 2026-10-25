@@ -243,3 +243,30 @@ def test_wayback_snapshot_url_is_validated(server):
         snapshot_url, _, page = fetcher.wayback("https://example.com/gone")
     assert page is None or not page.text
     assert server.hits["/wayback"] == 1
+
+
+def test_proxy_mode_does_not_ask_the_server_to_close(server, monkeypatch):
+    # Claude Code's sandbox proxy drops the tail of a response when the server
+    # closes the connection, so a `Connection: close` fetch came back short.
+    # This fixture plays that proxy: it cuts the body when asked to close.
+    page = "<html><body><p>" + "four domain names are reserved " * 200 + "</p></body></html>"
+    seen = []
+
+    def lossy_proxy(handler):
+        connection = handler.headers.get("Connection", "")
+        seen.append(connection)
+        body = page.encode()
+        handler.send_response(200)
+        handler.send_header("Content-Type", "text/html; charset=utf-8")
+        handler.send_header("Content-Length", str(len(body)))
+        handler.end_headers()
+        handler.wfile.write(body if connection.lower() != "close" else body[: len(body) // 2])
+
+    server.add("http://site.example/rfc", body=lossy_proxy)
+    for name in ("no_proxy", "NO_PROXY"):
+        monkeypatch.delenv(name, raising=False)
+    monkeypatch.setenv("http_proxy", server.url())
+    result = safe_fetch.fetch_page("http://site.example/rfc", 5, safe_fetch.FetchPolicy(use_env_proxy=True))
+    assert seen == ["keep-alive"]
+    assert not result.error, result.error
+    assert result.text.count("four domain names are reserved") == 200
