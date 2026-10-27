@@ -21,7 +21,7 @@ Asking the model that wrote a claim how sure it is does not catch a claim it mad
 
 ## Results
 
-- **Made-up funding round.** "Acme Robotics raised a $12M Series A led by Sequoia", checked against a page that only names the company, used to score as a near match. It is now `unsupported`, as is a quoted claim with the wrong number (`$12M` for `$15M`) or the wrong scale (`$40 billion` for `$40 million`). Pinned in `tests/test_tiering_core.py`; the fix is [cited#1](https://github.com/OrenSegal/cited/pull/1).
+- **Made-up funding round.** "Acme Robotics raised a $12M Series A led by Sequoia", checked against a page that only names the company, scores `unsupported`, as does a quoted claim with the wrong number (`$12M` for `$15M`) or the wrong scale (`$40 billion` for `$40 million`). Pinned in `tests/test_tiering_core.py` ([cited#1](https://github.com/OrenSegal/cited/pull/1)).
 - **Offline research-note eval.** `evals/catch-fabricated-citation` hands an agent a note with five claims about RFC 2606 and recorded copies of the pages. Expected: two quotes verified, the wrong year (2001 for 1999) not on the page, the paraphrase sent to a person, the citation of a nonexistent RFC reported as broken.
 - **Where it falls short.** The same RFC page let a swapped lowercase word pass as `verified`; see [Limitations](#limitations).
 
