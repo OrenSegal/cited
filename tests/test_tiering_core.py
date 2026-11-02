@@ -140,3 +140,93 @@ def test_pronoun_i_is_not_an_identifier():
     page = "Yesterday we shipped the new release to every Northwind customer. " * 10
     tier, note, _, _ = tier_for_claim("Yesterday I shipped the new release to every Northwind customer", page)
     assert tier != TIER_UNSUPPORTED, note
+
+
+# ── Numbers must sit near the claim's own words ─────────────────────────────
+
+ACQUISITION_PAGE = (
+    "Acme Robotics was founded in 2019 by Jane Doe. Beta Corp acquired Acme Robotics in 2022 for $15 million. "
+    "Revenue fell 12 percent in 2023 while headcount grew by 40 percent. "
+) * 2
+
+
+def test_year_borrowed_from_elsewhere_on_the_page_needs_review():
+    tier, note, _, _ = tier_for_claim("Acme Robotics was founded in 2022 by Jane Doe", ACQUISITION_PAGE)
+    assert tier == TIER_LOW_MATCH
+    assert "2022" in note and "human review" in note
+
+
+def test_terse_claim_cannot_lean_on_the_page_subject_for_context():
+    # "Acme Robotics" sits next to 2022 on the page, but it is what the whole
+    # page is about, so it says nothing about what happened in 2022.
+    tier, note, _, _ = tier_for_claim("Acme Robotics founded in 2022", ACQUISITION_PAGE)
+    assert tier == TIER_LOW_MATCH
+    assert "2022" in note
+
+
+def test_swapped_percentages_need_review():
+    tier, note, _, _ = tier_for_claim(
+        "Revenue fell 40 percent in 2023 while headcount grew by 12 percent", ACQUISITION_PAGE)
+    assert tier == TIER_LOW_MATCH
+    assert "40" in note and "12" in note
+
+
+def test_verbatim_quote_with_numbers_stays_verified():
+    for claim in ("Acme Robotics was founded in 2019 by Jane Doe",
+                  "Beta Corp acquired Acme Robotics in 2022 for $15 million",
+                  "Revenue fell 12 percent in 2023 while headcount grew by 40 percent"):
+        tier, note, _, _ = tier_for_claim(claim, ACQUISITION_PAGE)
+        assert tier == TIER_VERIFIED, note
+
+
+def test_scale_and_currency_words_are_not_context():
+    tier, note, _, _ = tier_for_claim(
+        "Beta Corp acquired Acme Robotics in 2022 for 15 million dollars", ACQUISITION_PAGE)
+    assert tier == TIER_VERIFIED, note
+
+
+def test_number_with_no_distinctive_neighbors_is_not_flagged():
+    page = "It was 2022 when the team shipped the first version of the product to customers. " * 5
+    tier, note, _, _ = tier_for_claim("It was 2022 when the team shipped the first version", page)
+    assert tier == TIER_VERIFIED, note
+
+
+def test_number_not_on_the_page_at_all_is_still_unsupported():
+    tier, note, _, _ = tier_for_claim("Acme Robotics was founded in 2021 by Jane Doe", ACQUISITION_PAGE)
+    assert tier == TIER_UNSUPPORTED
+    assert "2021" in note
+
+
+# ── Formatting and sentence position are not specifics ──────────────────────
+
+
+def test_trailing_zero_decimal_matches_the_whole_number():
+    tier, note, _, _ = tier_for_claim("Beta Corp acquired Acme Robotics in 2022 for $15.0 million", ACQUISITION_PAGE)
+    assert tier == TIER_VERIFIED, note
+
+
+def test_a_real_decimal_is_still_a_different_number():
+    tier, note, _, _ = tier_for_claim("Beta Corp acquired Acme Robotics in 2022 for $15.5 million", ACQUISITION_PAGE)
+    assert tier == TIER_UNSUPPORTED
+    assert "15.5" in note
+
+
+def test_sentence_initial_word_is_not_a_name():
+    tier, note, _, _ = tier_for_claim(
+        "Beta Corp acquired Acme Robotics in 2022. Moreover Jane Doe founded it.", ACQUISITION_PAGE)
+    assert tier != TIER_UNSUPPORTED, note
+    assert "Moreover" not in note
+
+
+def test_name_after_an_abbreviation_or_mid_sentence_is_still_a_name():
+    for claim in ("Beta Corp acquired Acme Robotics from Dr. Sequoia", "Beta Corp acquired Acme Robotics from Sequoia"):
+        tier, note, _, _ = tier_for_claim(claim, ACQUISITION_PAGE)
+        assert tier == TIER_UNSUPPORTED
+        assert "Sequoia" in note
+
+
+def test_invented_name_opening_a_later_sentence_is_flagged():
+    from tiering_core import missing_specifics
+
+    assert "Sequoia" in missing_specifics(
+        "Beta Corp acquired Acme Robotics in 2022. Sequoia led the round.", ACQUISITION_PAGE)

@@ -105,8 +105,13 @@ def _ngrams(words: list[str], size: int) -> set[tuple[str, ...]]:
     return {tuple(words[i:i + size]) for i in range(len(words) - size + 1)}
 
 
+def _normalize_number(number: str) -> str:
+    """ "1,000" and "1000" are one number, as are "15.0" and "15". """
+    return re.sub(r"\.0+$", "", number.replace(",", ""))
+
+
 def _numbers(text: str) -> set[str]:
-    return {n.replace(",", "") for n in re.findall(r"\d+(?:[.,]\d+)*", str(text or ""))}
+    return {_normalize_number(n) for n in re.findall(r"\d+(?:[.,]\d+)*", str(text or ""))}
 
 
 _SCALE_WORDS = {
@@ -128,7 +133,7 @@ def _quantities(text: str) -> set[str]:
         num, unit = (m.group(1), m.group(2)) if m.group(1) else (m.group(3), m.group(4))
         scale = _SCALE_WORDS.get(unit.lower())
         if scale:
-            found.add(f"{num.replace(',', '')} {scale}")
+            found.add(f"{_normalize_number(num)} {scale}")
     return found
 
 
@@ -140,6 +145,25 @@ def _letter_identifiers(text: str) -> set[str]:
             if letter != "I"}  # the pronoun, as in "Yesterday I"
 
 
+# Sentence ends, except after a title or an initial ("Dr. Lee", "J. Lee"), whose
+# next word is a name and not capitalized by position.
+_SENTENCE_BREAK = re.compile(
+    r"(?<=[.!?])(?<!\bMr\.)(?<!\bMs\.)(?<!\bDr\.)(?<!\bSt\.)(?<!\bMrs\.)(?<!\bProf\.)(?<!\b[A-Z]\.)"
+    r"[\"')\]]*\s+(?=[\"'(\[]*[A-Z])"
+)
+
+
+# Ordinary words that open a later sentence. Anything else capitalized there may be a name.
+_SENTENCE_OPENERS = frozenset({
+    "moreover", "however", "furthermore", "additionally", "also", "meanwhile", "still", "yet",
+    "then", "next", "finally", "first", "second", "third", "instead", "overall", "today",
+    "recently", "later", "previously", "currently", "thus", "therefore", "similarly", "likewise",
+    "nevertheless", "otherwise", "besides", "both", "many", "most", "some", "several", "after",
+    "before", "since", "while", "when", "although", "because", "if", "in", "on", "at", "by",
+    "for", "from", "with", "as", "to", "of",
+})
+
+
 def missing_specifics(claim: str, page_text: str) -> list[str]:
     """Numbers (with their scale word), capitalized names and one-letter
     identifiers like "Series B" in the claim that do not appear on the page.
@@ -147,8 +171,9 @@ def missing_specifics(claim: str, page_text: str) -> list[str]:
     A fabricated claim about a real entity (a funding round, an investor, a
     date) shares the entity's name with the page, so it clears the topical
     signal. Its specifics are what give it away. Lexical and English-centric:
-    capitalized tokens stand in for names, and the claim's first token is
-    skipped because it is capitalized by position.
+    capitalized tokens stand in for names. The claim's first token is skipped
+    because it is capitalized by position, and so is a later sentence's first
+    token when it is an ordinary opener.
     """
     missing = sorted(_numbers(claim) - _numbers(page_text))
     missing += sorted(_quantities(claim) - _quantities(page_text))
@@ -156,12 +181,57 @@ def missing_specifics(claim: str, page_text: str) -> list[str]:
     missing += sorted(i for i in _letter_identifiers(claim)
                       if " " + " ".join(_words(i)) + " " not in page_lower)
     page_words = set(_words(page_text))
-    tokens = re.findall(r"[A-Za-z][A-Za-z']*", str(claim or ""))
-    for token in tokens[1:]:
-        if len(token) >= 2 and token[0].isupper() and token.lower() not in page_words:
-            if token not in missing:
-                missing.append(token)
+    for i, sentence in enumerate(_SENTENCE_BREAK.split(str(claim or ""))):
+        tokens = re.findall(r"[A-Za-z][A-Za-z']*", sentence)
+        skip_first = i == 0 or (tokens and (tokens[0].lower() in _STOPWORDS or tokens[0].lower() in _SENTENCE_OPENERS))
+        for token in tokens[1:] if skip_first else tokens:
+            if len(token) >= 2 and token[0].isupper() and token.lower() not in page_words:
+                if token not in missing:
+                    missing.append(token)
     return missing
+
+
+# A word this close to a number, in the same sentence, is taken to be about it.
+_NUMBER_WINDOW = 4
+_UNIT_WORDS = frozenset(_SCALE_WORDS) | {"dollars", "euros", "pounds"}
+
+
+def _number_windows(text: str) -> list[tuple[str, list[str]]]:
+    """Each number in `text`, with the words around it in its sentence."""
+    found = []
+    for sentence in _SENTENCE_BREAK.split(str(text or "")):
+        tokens = re.findall(r"\d+(?:[.,]\d+)*|[A-Za-z][A-Za-z']*", sentence)
+        for i, token in enumerate(tokens):
+            if token[0].isdigit():
+                near = tokens[max(0, i - _NUMBER_WINDOW):i] + tokens[i + 1:i + 1 + _NUMBER_WINDOW]
+                found.append((_normalize_number(token), [w for w in near if w[0].isalpha()]))
+    return found
+
+
+def _context_words(words: list[str]) -> set[str]:
+    lowered = (w.lower() for w in words)
+    return {w for w in lowered if len(w) > 3 and w not in _STOPWORDS and w not in _UNIT_WORDS}
+
+
+def numbers_out_of_context(claim: str, page_text: str) -> list[str]:
+    """Numbers in the claim that are on the page, but never next to the words
+    the claim puts around them: "founded in 2022" on a page that says founded
+    in 2019 and sold in 2022.
+
+    The claim's lowercase neighbors are preferred, because a capitalized one
+    is usually the page's subject and sits next to every number on the page.
+    A number with no distinctive neighbors is not judged. Heuristic: this can
+    only ask for a human, it never calls a claim unsupported.
+    """
+    page_context: dict[str, set[str]] = {}
+    for number, near in _number_windows(page_text):
+        page_context.setdefault(number, set()).update(w.lower() for w in near)
+    out = []
+    for number, near in _number_windows(claim):
+        wanted = _context_words([w for w in near if w[0].islower()]) or _context_words(near)
+        if wanted and not wanted & page_context.get(number, set()) and number not in out:
+            out.append(number)
+    return out
 
 
 def claim_signals(claim: str, page_text: str) -> tuple[float, float]:
@@ -210,6 +280,12 @@ def tier_for_claim(claim: str, page_text: str) -> tuple[str, str, float, float]:
                 "Claim's specifics are not on the page it cites: " + ", ".join(missing),
                 quoted, topical)
     if quoted >= QUOTED_THRESHOLD:
+        stray = numbers_out_of_context(claim, page_text)
+        if stray:
+            return (TIER_LOW_MATCH,
+                    "Claim's numbers are on the page but not next to the claim's words: "
+                    + ", ".join(stray) + "; needs human review",
+                    quoted, topical)
         return TIER_VERIFIED, "", quoted, topical
     if topical >= SUPPORTED_THRESHOLD:
         return TIER_LOW_MATCH, "Claim shares vocabulary with the page but is not quoted from it; needs human review", quoted, topical
