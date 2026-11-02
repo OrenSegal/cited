@@ -209,6 +209,7 @@ cited fetches URLs an agent wrote, so it treats them as hostile. Only `http` and
 - **Substituted lowercase words pass.** Only numbers, capitalized words and one-letter identifiers are checked as specifics. `"The .demo TLD is recommended for use in documentation"` checked against RFC 2606 (which says `.example`) came back `verified`, because every other word is quoted.
 - **Numbers written as words are not checked.** `"reserves seven top level domain names"` against a page that says "four" came back `low_match`, not `unsupported`. It still blocks, but for the wrong reason.
 - **Negation and qualifiers are invisible.** "did not raise" and "raised" share most of their words.
+- **Specifics are matched anywhere on the page, not in context.** `"founded in 2022"` comes back `verified` on a page that says 2019 and mentions 2022 elsewhere, and so do swapped percentages.
 - **English-centric.** The capitalized-name heuristic skips the claim's first word, misses lowercase brand names, and can flag an ordinary capitalized word the page does not use.
 - **No JavaScript.** Pages that render in the browser come back thin (`unverified`) unless their meta description or JSON-LD carries the claim, or the Wayback copy has text.
 - **Pages change.** A claim can be `verified` today and gone tomorrow, or vice versa. Every annotated entry carries `verified_at`, and `--cache` pins a run to the pages it saw.
