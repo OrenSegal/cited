@@ -10,7 +10,9 @@ It ships as a Claude Code plugin (a skill, a `/cited:check` command and a `cited
 
 It checks containment, not truth. A `verified` claim is on the page; whether the page is right is a separate question.
 
-**Sample:** [this certificate](docs/examples/sample-certificate.png) is a real run on six claims about RFC 2606, RFC 2119 and the Python 3.12.0 release page: 3 verified, 1 needs review, 2 not on page ([HTML](docs/examples/sample-certificate.html), [draft](docs/examples/sample-draft.md), [JSON](docs/examples/sample-report.json)).
+[![A cited certificate: 3 verified, 1 needs review, 2 not on page](docs/examples/sample-certificate.png)](docs/examples/sample-certificate.html)
+
+*A real run on six claims about RFC 2606, RFC 2119 and the Python 3.12.0 release page: 3 verified, 1 needs review, 2 not on page ([HTML](docs/examples/sample-certificate.html), [draft](docs/examples/sample-draft.md), [JSON](docs/examples/sample-report.json)).*
 
 `hosted/` holds a serverless certificate app (Vercel + Supabase + Stripe) that runs locally today and is not yet deployed; see [hosted/README.md](hosted/README.md).
 
