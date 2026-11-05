@@ -7,7 +7,8 @@ Routes:
   GET  /                  the upload page
   POST /check             mode=links: dead and redirected sources, first FREE_LINK_CAP links, nothing stored
                           mode=certificate: needs an access code; starts a certificate job and shows
-                          its share link and private delete link
+                          its share link and private delete link. With CITED_DEMO_MAX_CLAIMS set, a
+                          job with no code and at most that many claims runs as a labelled demo
   GET  /c/{id}            a certificate. While its job runs, each visit checks the next batches of
                           claims within a time budget and the page refreshes itself until done
   GET  /c/{id}/delete     confirm deleting a certificate (needs its secret key)
@@ -62,7 +63,6 @@ MAX_FORM_BYTES = 1_000_000
 MAX_DOC_BYTES = 500_000
 FETCH_TIMEOUT = 8.0
 CONCURRENCY = 8
-PAYMENT_LINK_PLACEHOLDER = "STRIPE_PAYMENT_LINK_TODO"
 CITED_HOME = "https://github.com/OrenSegal/cited"
 CERT_ID = re.compile(r"[A-Za-z0-9_-]{12,32}")
 
@@ -295,7 +295,7 @@ def email_access_code(email: str, code: str) -> bool:
 class App:
     def __init__(self, *, storage: Storage | None = None, storage_error: str | None = None,
                  policy: FetchPolicy | None = None, access_codes: frozenset[str] = frozenset(),
-                 payment_link: str = PAYMENT_LINK_PLACEHOLDER, timeout: float = FETCH_TIMEOUT,
+                 payment_link: str = "", demo_max_claims: int = 0, timeout: float = FETCH_TIMEOUT,
                  job_timeout: float = JOB_TIMEOUT, per_host_delay: float = 0.25, use_wayback: bool = True,
                  poll_budget: float = POLL_BUDGET, worst_batch: float = JOB_WORST_BATCH,
                  rate_limit: tuple[int, int] = RATE_LIMIT, stripe_secret: str = "",
@@ -304,7 +304,8 @@ class App:
         self.storage_error = storage_error
         self.policy = policy or FetchPolicy()
         self.access_codes = access_codes
-        self.payment_link = payment_link
+        self.payment_link = payment_link  # empty: every Buy link is hidden
+        self.demo_max_claims = demo_max_claims  # 0: no demo lane, every certificate needs a code
         self.timeout = timeout
         self.job_timeout = job_timeout
         self.per_host_delay = per_host_delay
@@ -330,7 +331,8 @@ class App:
             count, _, window = env["CITED_RATE_LIMIT"].partition("/")
             limit = (int(count), int(window or RATE_LIMIT[1]))
         return cls(storage=storage, storage_error=error, access_codes=codes, rate_limit=limit,
-                   payment_link=env.get("CITED_PAYMENT_LINK", "").strip() or PAYMENT_LINK_PLACEHOLDER,
+                   payment_link=env.get("CITED_PAYMENT_LINK", "").strip(),
+                   demo_max_claims=int(env.get("CITED_DEMO_MAX_CLAIMS", "").strip() or 0),
                    stripe_secret=env.get("STRIPE_WEBHOOK_SECRET", "").strip())
 
     # Routing
@@ -412,7 +414,7 @@ sources are dead, and which claims are not on the page they cite.</p>
   <div class="code">
     <label for="code">Access code <span class="hint">for a certificate</span></label>
     <input id="code" name="code" type="text" autocomplete="off" autocapitalize="off" spellcheck="false">
-    <p class="why">No code yet? <a href="{_esc(self.payment_link)}">Buy a certificate</a> and we will email you one.</p>
+    {self._buy_hint()}
   </div>
   <div class="actions"><button class="btn" type="submit">Check sources</button>
   <span class="why">Big drafts take a minute.</span></div>
@@ -541,7 +543,7 @@ from where it stopped the next time anyone opens this link.</p>""",
 <h2>Want every claim checked?</h2>
 <p class="meaning">This only shows whether each source still loads. A certificate also checks whether each claim's
 own words, numbers and names are on the page it cites, and gives you a page to share.</p>
-<div class="actions"><a class="btn" href="{_esc(self.payment_link)}">Get a certificate for $9</a>
+<div class="actions">{f'<a class="btn" href="{_esc(self.payment_link)}">Get a certificate for $9</a>' if self.payment_link else ''}
 <a href="/">Check another draft</a></div>""")
 
     def _storage(self) -> Storage:
@@ -558,20 +560,33 @@ own words, numbers and names are on the page it cites, and gives you a page to s
             matched = self.storage.get(f"minted/{_sha(code)}") is not None
         return matched
 
+    def _buy_hint(self) -> str:
+        hints = []
+        if self.payment_link:
+            hints.append(f'No code yet? <a href="{_esc(self.payment_link)}">Buy a certificate</a> and we will email you one.')
+        if self.demo_max_claims:
+            lead = "Or leave it blank" if hints else "No code? Leave it blank"
+            hints.append(f"{lead} for a free demo certificate of up to {plural(self.demo_max_claims, 'claim')}.")
+        return f'<p class="why">{" ".join(hints)}</p>' if hints else ""
+
     def _payment_page(self, code: str) -> Response:
+        buy = (f'<a class="btn" href="{_esc(self.payment_link)}">Buy a certificate, $9</a>\n'
+               if self.payment_link else "")
+        how = "Buy one and we will email you a code." if self.payment_link else "Codes are not on sale yet."
         return _page("Access code needed", f"""<h1>A certificate needs an access code</h1>
-<p class="lede">{'That code is not valid. ' if code else ''}Certificates are $9 each. Buy one and we will
-email you a code. Your draft is not stored, so paste it again when you have the code.</p>
-<div class="actions"><a class="btn" href="{_esc(self.payment_link)}">Buy a certificate, $9</a>
-<a href="/">Run the free link check instead</a></div>""", 402)
+<p class="lede">{'That code is not valid. ' if code else ''}Certificates are $9 each. {how}
+Your draft is not stored, so paste it again when you have the code.</p>
+<div class="actions">{buy}<a href="/">Run the free link check instead</a></div>""", 402)
 
     def start_certificate(self, name: str, markdown: str, code: str, base_url: str = "") -> Response:
-        if not self.access_codes and not self.stripe_secret:
-            raise UserError("Certificates are not on sale yet.", 503)
-        if not code:
-            return self._payment_page(code)
+        demo = not code and self.demo_max_claims > 0  # no code + demo lane on: a capped, labelled demo
+        if not demo:
+            if not self.access_codes and not self.stripe_secret:
+                raise UserError("Certificates are not on sale yet.", 503)
+            if not code:
+                return self._payment_page(code)
         storage = self._storage()
-        if not self._code_ok(code):
+        if not demo and not self._code_ok(code):
             return self._payment_page(code)
 
         pairs = extract(markdown)
@@ -583,23 +598,27 @@ email you a code. Your draft is not stored, so paste it again when you have the 
             raise UserError("No checkable claims were found. A claim is a sentence with a link or URL to its source.")
         if len(entries) > CERT_CLAIM_CAP:
             raise UserError(f"This draft has {len(entries)} checkable claims; a certificate covers up to {CERT_CLAIM_CAP}.")
+        if demo and len(entries) > self.demo_max_claims:
+            raise UserError(f"This draft has {len(entries)} checkable claims; the free demo covers up to "
+                            f"{self.demo_max_claims}. Check a shorter draft, or use an access code.")
 
         # Single use: the first request to create this marker wins. Redeemed
         # only after the input is known to be checkable.
         cert_id = _new_cert_id()
         delete_key = secrets.token_urlsafe(24)
         meta = {"name": name, "entries": entries, "excluded": excluded, "links_total": len(pairs),
-                "batch_size": BATCH_SIZE, "created": utc_now(), "delete_hash": _sha(delete_key)}
+                "batch_size": BATCH_SIZE, "created": utc_now(), "delete_hash": _sha(delete_key), "demo": demo}
         # Write the job first, so a storage failure here leaves the code unspent.
         storage.put(f"jobs/{cert_id}.json", json.dumps(meta, ensure_ascii=False).encode("utf-8"), "application/json")
-        try:
-            claimed = storage.create(f"codes/{_sha(code)}", cert_id.encode())
-        except StorageError:
-            self._drop_orphan_job(cert_id)
-            raise
-        if not claimed:
-            self._drop_orphan_job(cert_id)
-            raise UserError("That access code has already been used.", 409)
+        if not demo:
+            try:
+                claimed = storage.create(f"codes/{_sha(code)}", cert_id.encode())
+            except StorageError:
+                self._drop_orphan_job(cert_id)
+                raise
+            if not claimed:
+                self._drop_orphan_job(cert_id)
+                raise UserError("That access code has already been used.", 409)
         share, delete = f"/c/{cert_id}", f"/c/{cert_id}/delete?key={delete_key}"
         return _page("Certificate started", f"""<h1>Your certificate is on its way</h1>
 <p class="lede">{plural(len(entries), 'claim')} to check. Open the certificate to watch it fill in; it takes about
@@ -667,8 +686,11 @@ Anyone with it can delete the certificate.</p>
         checked_at = utc_now()
         page = render_certificate(meta["name"], rows, checked_at, excluded=meta["excluded"],
                                   links_total=meta["links_total"], version=VERSION, footer_link=CITED_HOME)
+        if meta.get("demo"):
+            page = page.replace('<main class="wrap">', '<main class="wrap">\n<p class="note"><b>Demo certificate.</b> '
+                                "Made with the free demo, without an access code, for a short draft.</p>", 1)
         report = {"cited_version": VERSION, "checked_at": checked_at, "document": meta["name"],
-                  "counts": counts, "results": rows, "excluded": meta["excluded"]}
+                  "counts": counts, "results": rows, "excluded": meta["excluded"], "demo": bool(meta.get("demo"))}
         storage.put(f"certs/{cert_id}.json", json.dumps(report, ensure_ascii=False).encode("utf-8"),
                     "application/json")
         storage.put(f"certs/{cert_id}.html", page.encode("utf-8"), "text/html; charset=utf-8")
