@@ -10,6 +10,8 @@ It ships as a Claude Code plugin (a skill, a `/cited:check` command and a `cited
 
 It checks containment, not truth. A `verified` claim is on the page; whether the page is right is a separate question.
 
+`hosted/` holds a serverless certificate app (Vercel + Supabase + Stripe) that runs locally today and is not yet deployed; see [hosted/README.md](hosted/README.md).
+
 ## Why
 
 Asking the model that wrote a claim how sure it is does not catch a claim it made up. cited checks the page instead, fetched fresh, with a Wayback Machine fallback when the live page is gone or empty.
@@ -209,6 +211,7 @@ cited fetches URLs an agent wrote, so it treats them as hostile. Only `http` and
 - **Matching is lexical.** It compares words and word sequences. It cannot tell whether a reworded claim means the same as the page, or whether a quoted line means what your artifact says.
 - **Substituted lowercase words pass.** Only numbers, capitalized words and one-letter identifiers are checked as specifics. `"The .demo TLD is recommended for use in documentation"` checked against RFC 2606 (which says `.example`) came back `verified`, because every other word is quoted.
 - **Numbers written as words are not checked.** `"reserves seven top level domain names"` against a page that says "four" came back `low_match`, not `unsupported`. It still blocks, but for the wrong reason.
+- **Dates are not normalised.** Abbreviated month names and other date formats are not matched to each other. `"published in October 2023"` against a page that says "Oct. 2, 2023" came back `unsupported` (Not on page), because `October` is checked as a name the page does not use.
 - **Negation and qualifiers are invisible.** "did not raise" and "raised" share most of their words.
 - **Numbers are checked against nearby words, and only roughly.** A number in a quoted claim must sit within a few words of a word the claim puts next to it, in the same sentence. `"founded in 2022"` on a page that says 2019 and mentions 2022 elsewhere comes back `low_match`, and so do swapped percentages. It is a heuristic, so it asks for a person and never says `unsupported`: a real claim that moves a number far from its words also lands in `low_match`, and a wrong number that happens to sit near one of the claim's words still passes.
 - **English-centric.** The capitalized-name heuristic skips the claim's first word (so an invented name there passes) and ordinary openers such as "Moreover" in later sentences, misses lowercase brand names, and can flag an ordinary capitalized word the page does not use.
