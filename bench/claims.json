@@ -1,0 +1,176 @@
+[
+  {
+    "id": "supported-01",
+    "claim": "To safely satisfy these needs, four domain names are reserved as listed and described below.",
+    "source_url": "https://www.rfc-editor.org/rfc/rfc2606.txt",
+    "on_page": true
+  },
+  {
+    "id": "supported-02",
+    "claim": "\".test\" is recommended for use in testing of current or new DNS related code.",
+    "source_url": "https://www.rfc-editor.org/rfc/rfc2606.txt",
+    "on_page": true
+  },
+  {
+    "id": "supported-03",
+    "claim": "\".example\" is recommended for use in documentation or as examples.",
+    "source_url": "https://www.rfc-editor.org/rfc/rfc2606.txt",
+    "on_page": true
+  },
+  {
+    "id": "supported-04",
+    "claim": "The \".localhost\" TLD has traditionally been statically defined in host DNS implementations as having an A record pointing to the loop back IP address.",
+    "source_url": "https://www.rfc-editor.org/rfc/rfc2606.txt",
+    "on_page": true
+  },
+  {
+    "id": "supported-05",
+    "claim": "RFC 2606 was published in June 1999.",
+    "source_url": "https://www.rfc-editor.org/rfc/rfc2606.txt",
+    "on_page": true
+  },
+  {
+    "id": "supported-06",
+    "claim": "RFC 2606 was written by Eastlake and Panitz.",
+    "source_url": "https://www.rfc-editor.org/rfc/rfc2606.txt",
+    "on_page": true
+  },
+  {
+    "id": "supported-07",
+    "claim": "IANA has agreed to the four top level domain name reservations specified in this document.",
+    "source_url": "https://www.rfc-editor.org/rfc/rfc2606.txt",
+    "on_page": true
+  },
+  {
+    "id": "supported-08",
+    "claim": "The second level domain names example.com, example.net and example.org are reserved for use as examples.",
+    "source_url": "https://www.rfc-editor.org/rfc/rfc2606.txt",
+    "on_page": true
+  },
+  {
+    "id": "supported-09",
+    "claim": "The RFC is a Best Current Practice document titled Reserved Top Level DNS Names.",
+    "source_url": "https://www.rfc-editor.org/rfc/rfc2606.txt",
+    "on_page": true
+  },
+  {
+    "id": "supported-10",
+    "claim": "Test and experimental software can escape and end up being run against the global operational DNS.",
+    "source_url": "https://www.rfc-editor.org/rfc/rfc2606.txt",
+    "on_page": true
+  },
+  {
+    "id": "supported-11",
+    "claim": "Confusion and conflict can be caused by the use of a current or future top level domain name in experimentation or testing.",
+    "source_url": "https://www.rfc-editor.org/rfc/rfc2606.txt",
+    "on_page": true
+  },
+  {
+    "id": "supported-12",
+    "claim": "The reserved names exist to reduce the likelihood of conflict and confusion.",
+    "source_url": "https://www.rfc-editor.org/rfc/rfc2606.txt",
+    "on_page": true
+  },
+  {
+    "id": "supported-13",
+    "claim": "RFC 2606 reserves four top level names that testers and documentation writers can use safely.",
+    "source_url": "https://www.rfc-editor.org/rfc/rfc2606.txt",
+    "on_page": true
+  },
+  {
+    "id": "supported-14",
+    "claim": "Even documentation examples can end up coded and released, or cause conflicts if the name later gets real use.",
+    "source_url": "https://www.rfc-editor.org/rfc/rfc2606.txt",
+    "on_page": true
+  },
+  {
+    "id": "absent-01",
+    "claim": "RFC 2606 was published in June 2001.",
+    "source_url": "https://www.rfc-editor.org/rfc/rfc2606.txt",
+    "on_page": false
+  },
+  {
+    "id": "absent-02",
+    "claim": "RFC 2606 was written by Postel and Mockapetris.",
+    "source_url": "https://www.rfc-editor.org/rfc/rfc2606.txt",
+    "on_page": false
+  },
+  {
+    "id": "absent-03",
+    "claim": "To safely satisfy these needs, six domain names are reserved as listed and described below.",
+    "source_url": "https://www.rfc-editor.org/rfc/rfc2606.txt",
+    "on_page": false
+  },
+  {
+    "id": "absent-04",
+    "claim": "\".test\" is recommended for use in production DNS servers.",
+    "source_url": "https://www.rfc-editor.org/rfc/rfc2606.txt",
+    "on_page": false
+  },
+  {
+    "id": "absent-05",
+    "claim": "\".demo\" is recommended for use in documentation or as examples.",
+    "source_url": "https://www.rfc-editor.org/rfc/rfc2606.txt",
+    "on_page": false
+  },
+  {
+    "id": "absent-06",
+    "claim": "\".invalid\" is intended for use in online construction of domain names that are sure to be valid.",
+    "source_url": "https://www.rfc-editor.org/rfc/rfc2606.txt",
+    "on_page": false
+  },
+  {
+    "id": "absent-07",
+    "claim": "The second level domain names example.com, example.net and example.edu are reserved for use as examples.",
+    "source_url": "https://www.rfc-editor.org/rfc/rfc2606.txt",
+    "on_page": false
+  },
+  {
+    "id": "absent-08",
+    "claim": "RFC 2606 was published by Google in June 1999.",
+    "source_url": "https://www.rfc-editor.org/rfc/rfc2606.txt",
+    "on_page": false
+  },
+  {
+    "id": "absent-09",
+    "claim": "IANA has rejected the four top level domain name reservations specified in this document.",
+    "source_url": "https://www.rfc-editor.org/rfc/rfc2606.txt",
+    "on_page": false
+  },
+  {
+    "id": "absent-10",
+    "claim": "The RFC reserves 12 top level domain names for private testing.",
+    "source_url": "https://www.rfc-editor.org/rfc/rfc2606.txt",
+    "on_page": false
+  },
+  {
+    "id": "absent-11",
+    "claim": "RFC 2606 requires every registrar to delete all .test domains within 30 days.",
+    "source_url": "https://www.rfc-editor.org/rfc/rfc2606.txt",
+    "on_page": false
+  },
+  {
+    "id": "absent-12",
+    "claim": "The ICANN board approved RFC 2606 in a vote of 9 to 2.",
+    "source_url": "https://www.rfc-editor.org/rfc/rfc2606.txt",
+    "on_page": false
+  },
+  {
+    "id": "absent-13",
+    "claim": "The \".localhost\" TLD has traditionally been defined as having an A record pointing to the public Cloudflare resolver.",
+    "source_url": "https://www.rfc-editor.org/rfc/rfc2606.txt",
+    "on_page": false
+  },
+  {
+    "id": "absent-14",
+    "claim": "Reserved Top Level DNS Names was superseded by RFC 6761 in 2013.",
+    "source_url": "https://www.rfc-editor.org/rfc/rfc2606.txt",
+    "on_page": false
+  },
+  {
+    "id": "absent-15",
+    "claim": "The RFC says the .example TLD must never appear in documentation.",
+    "source_url": "https://www.rfc-editor.org/rfc/rfc2606.txt",
+    "on_page": false
+  }
+]
