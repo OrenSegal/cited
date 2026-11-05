@@ -1,5 +1,15 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- `bench/`: 29 hand-labelled claims against the recorded RFC 2606 page and `bench/run.py`, which prints recall and false-positive counts offline. `tests/test_bench.py` pins the numbers.
+
+### Fixed
+
+- Removed a duplicated `Fixed` block under 0.5.0.
+
 ## 0.5.0
 
 ### Added
@@ -20,11 +30,6 @@
 
 - A number in a quoted claim now has to sit near a word the claim puts next to it. `"founded in 2022"` on a page that says 2019 and mentions 2022 elsewhere came back `verified`, and so did swapped percentages. Both are now `low_match`.
 - `$15.0 million` no longer counts as missing against `$15 million`, and the first word of a later sentence ("Moreover") no longer counts as a missing name.
-- `--proxy-from-env` fetches no longer come back short behind Claude Code's sandbox proxy. urllib always sent `Connection: close`, and the proxy dropped the tail of the body when the server closed; proxy mode now asks to keep the connection open. The direct path is unchanged.
-- The evals measure the skill text: `invalid-claims-file` needs a real `cited` run on a claims file and fails with the plugin absent, `catch-fabricated-citation` runs offline against recorded pages and checks the disclosed tally, and `cited:check` passes `--proxy-from-env` in a sandbox.
-
-### Fixed
-
 - `--proxy-from-env` fetches no longer come back short behind Claude Code's sandbox proxy. urllib always sent `Connection: close`, and the proxy dropped the tail of the body when the server closed; proxy mode now asks to keep the connection open. The direct path is unchanged.
 - The evals measure the skill text: `invalid-claims-file` needs a real `cited` run on a claims file and fails with the plugin absent, `catch-fabricated-citation` runs offline against recorded pages and checks the disclosed tally, and `cited:check` passes `--proxy-from-env` in a sandbox.
 
