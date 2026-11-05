@@ -1,0 +1,128 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Source check: sample-draft.md</title>
+<style>
+:root{color-scheme:light dark;
+--bg:#f7f5f0;--fg:#1b1a16;--mut:#625c4c;--line:#e2ddd0;--card:#fffdf8;--sunk:#efece4;
+--bad:#b42318;--warn:#8a5a00;--ok:#17734a;--info:#47469a;--unk:#6b6657;--link:#2f4fa8;--focus:#2f4fa8;
+--serif:"Iowan Old Style","Charter","Source Serif Pro","Georgia",serif;
+--sans:ui-sans-serif,-apple-system,"Segoe UI",Roboto,"Helvetica Neue",sans-serif;
+--mono:ui-monospace,"SF Mono",SFMono-Regular,Menlo,Consolas,monospace}
+@media (prefers-color-scheme:dark){:root{
+--bg:#13120f;--fg:#ebe7dd;--mut:#a39c8b;--line:#2d2b25;--card:#1b1a16;--sunk:#22201b;
+--bad:#ff8b7b;--warn:#f0b84a;--ok:#5fcf98;--info:#aeadf2;--unk:#a39c8b;--link:#9db4ff;--focus:#9db4ff}}
+*{box-sizing:border-box}
+html{-webkit-text-size-adjust:100%}
+body{margin:0;background:var(--bg);color:var(--fg);font:16px/1.6 var(--sans);font-variant-numeric:tabular-nums}
+::selection{background:color-mix(in srgb,var(--link) 28%,transparent)}
+a{color:var(--link);text-underline-offset:.18em;text-decoration-thickness:1px}
+a:hover{text-decoration-thickness:2px}
+:focus-visible{outline:2px solid var(--focus);outline-offset:2px;border-radius:3px}
+code{font:.82em var(--mono);background:var(--sunk);padding:.1em .4em;border-radius:4px;overflow-wrap:anywhere}
+.wrap{max-width:860px;margin:0 auto;padding:48px 16px 40px}
+h1,h2{font-family:var(--serif);font-weight:600;text-wrap:balance}
+h1{font-size:clamp(28px,6vw,40px);line-height:1.12;letter-spacing:-.015em;margin:0 0 12px}
+.lede{font-size:17px;max-width:62ch;margin:0 0 14px}
+.sub{color:var(--mut);font-size:14px;margin:0 0 28px}
+.v-bad{color:var(--bad)}.v-warn{color:var(--warn)}.v-ok{color:var(--ok)}
+.tally{display:flex;height:10px;border-radius:5px;overflow:hidden;gap:2px;background:var(--sunk);margin:0 0 12px}
+.tally span{display:block;min-width:4px}
+.legend{display:flex;flex-wrap:wrap;gap:6px 18px;list-style:none;padding:0;margin:0 0 32px;font-size:14px}
+.legend a{color:var(--fg);text-decoration:none}
+.legend a:hover b{text-decoration:underline}
+.legend i{display:inline-block;width:10px;height:10px;border-radius:2px;margin-right:7px;vertical-align:-1px}
+.c-unsupported,.c-broken{--tc:var(--bad)}.c-low_match{--tc:var(--warn)}.c-snippet_only{--tc:var(--info)}
+.c-unverified{--tc:var(--unk)}.c-verified{--tc:var(--ok)}.c-excluded{--tc:var(--line)}
+.tally .c-unsupported,.legend .c-unsupported i{background:var(--bad)}
+.tally .c-broken,.legend .c-broken i{background:color-mix(in srgb,var(--bad) 55%,var(--bg))}
+.tally .c-low_match,.legend .c-low_match i{background:var(--warn)}
+.tally .c-snippet_only,.legend .c-snippet_only i{background:var(--info)}
+.tally .c-unverified,.legend .c-unverified i{background:var(--unk)}
+.tally .c-verified,.legend .c-verified i{background:var(--ok)}
+.legend .c-excluded i{background:transparent;border:1px solid var(--mut)}
+.note{font-size:14px;color:var(--mut);border-top:1px solid var(--line);border-bottom:1px solid var(--line);
+padding:14px 0;margin:0 0 8px;max-width:72ch}
+.note b{color:var(--fg)}
+h2{font-size:22px;margin:44px 0 4px;display:flex;align-items:baseline;gap:10px}
+h2 .n{font:600 15px var(--sans);color:var(--tc,var(--mut))}
+h2::before{content:"";width:10px;height:10px;border-radius:2px;background:var(--tc,var(--mut));flex:none;align-self:center}
+.meaning{color:var(--mut);font-size:14.5px;margin:0 0 14px;max-width:68ch}
+.claims{list-style:none;margin:0;padding:0;border-top:1px solid var(--line)}
+.claim{padding:16px 0;border-bottom:1px solid var(--line)}
+.claim q{display:block;font-size:16px;margin:0 0 6px;max-width:72ch;quotes:none}
+.src{font-size:14px;overflow-wrap:anywhere}
+.meta{font-size:13px;color:var(--mut);margin-top:4px}
+.why{font-size:13px;color:var(--mut)}
+table{width:100%;border-collapse:collapse;font-size:14px}
+.scroll{overflow-x:auto}
+td,th{text-align:left;padding:8px 10px 8px 0;border-bottom:1px solid var(--line);vertical-align:top}
+th{color:var(--mut);font-weight:600;font-size:13px}
+footer{margin-top:56px;padding-top:18px;border-top:1px solid var(--line);font-size:13px;color:var(--mut)}
+@media print{:root{color-scheme:light}body{background:#fff}.claim{break-inside:avoid}}
+</style></head>
+<body><main class="wrap">
+<h1 class="v-bad">2 claims did not check out</h1>
+<p class="lede">At least one claim is not on the page it cites, or its source is unreachable. Fix these before this goes out.</p>
+<p class="sub">Source check of <code>sample-draft.md</code> · 6 links found · 6 claims checked · 2026-11-05T06:37:46Z</p>
+<div class="tally" role="img" aria-label="2 not on page, 1 needs review, 3 verified"><span class="c-unsupported" style="flex:2"></span><span class="c-low_match" style="flex:1"></span><span class="c-verified" style="flex:3"></span></div>
+<ul class="legend"><li class="c-unsupported"><a href="#g-unsupported"><i></i>Not on page <b>2</b></a></li><li class="c-low_match"><a href="#g-low_match"><i></i>Needs review <b>1</b></a></li><li class="c-verified"><a href="#g-verified"><i></i>Verified <b>3</b></a></li></ul>
+
+<p class="note"><b>What this proves, and what it does not.</b> Every claim below was re-fetched
+from the URL it cites and checked for whether the claim's own words, numbers and names appear on that
+page. That is <i>containment</i>, not truth. A claim can be quoted perfectly from a source that is
+itself wrong, and this check would call it verified. It catches invented sources, misattributed
+quotes, dead links and drifted pages, not bad sources honestly cited.</p>
+
+<section class="c-unsupported" id="g-unsupported">
+<h2>Not on page <span class="n">2</span></h2>
+<p class="meaning">The source was read and the claim is not in it. This is the fabrication signal.</p>
+<ol class="claims"><li class="claim">
+  <q>RFC 2606 was published in June 2001.</q>
+  <div class="src"><a href="https://www.rfc-editor.org/rfc/rfc2606.txt">https://www.rfc-editor.org/rfc/rfc2606.txt</a></div>
+  <div class="meta">line 11 · quoted 13% · vocabulary 75%
+  · checked against live · claim recovered from the preceding sentence</div>
+  <div class="meta">Claim&#x27;s specifics are not on the page it cites: 2001</div>
+</li><li class="claim">
+  <q>Python 3.12 removed the Global Interpreter Lock for all programs.</q>
+  <div class="src"><a href="https://www.python.org/downloads/release/python-3120/">https://www.python.org/downloads/release/python-3120/</a></div>
+  <div class="meta">line 13 · quoted 24% · vocabulary 67%
+  · checked against live · claim recovered from the preceding sentence</div>
+  <div class="meta">Claim&#x27;s specifics are not on the page it cites: Lock</div>
+</li></ol>
+</section><section class="c-low_match" id="g-low_match">
+<h2>Needs review <span class="n">1</span></h2>
+<p class="meaning">The page covers this subject, but not in these words. A person should read it.</p>
+<ol class="claims"><li class="claim">
+  <q>IANA agreed to reserve the test names so they would never be delegated in the global DNS.</q>
+  <div class="src"><a href="https://www.rfc-editor.org/rfc/rfc2606.txt">https://www.rfc-editor.org/rfc/rfc2606.txt</a></div>
+  <div class="meta">line 9 · quoted 25% · vocabulary 88%
+  · checked against live · claim recovered from the preceding sentence</div>
+  <div class="meta">Claim shares vocabulary with the page but is not quoted from it; needs human review</div>
+</li></ol>
+</section><section class="c-verified" id="g-verified">
+<h2>Verified <span class="n">3</span></h2>
+<p class="meaning">The claim&#x27;s wording was found on the page it cites.</p>
+<ol class="claims"><li class="claim">
+  <q>The &quot;.example&quot; name is recommended for use in documentation or as examples.</q>
+  <div class="src"><a href="https://www.rfc-editor.org/rfc/rfc2606.txt">https://www.rfc-editor.org/rfc/rfc2606.txt</a></div>
+  <div class="meta">line 3 · quoted 70% · vocabulary 100%
+  · checked against live · claim recovered from the preceding sentence</div>
+  
+</li><li class="claim">
+  <q>The word MUST means that the definition is an absolute requirement of the specification.</q>
+  <div class="src"><a href="https://www.rfc-editor.org/rfc/rfc2119.txt">https://www.rfc-editor.org/rfc/rfc2119.txt</a></div>
+  <div class="meta">line 5 · quoted 67% · vocabulary 86%
+  · checked against live · claim recovered from the preceding sentence</div>
+  
+</li><li class="claim">
+  <q>The new release brought more flexible f-string parsing, allowing many things previously disallowed.</q>
+  <div class="src"><a href="https://www.python.org/downloads/release/python-3120/">https://www.python.org/downloads/release/python-3120/</a></div>
+  <div class="meta">line 7 · quoted 67% · vocabulary 91%
+  · checked against live · claim recovered from the preceding sentence</div>
+  
+</li></ol>
+</section>
+
+<footer>Generated by cited 0.5.0. Pages were as described above when each was fetched,
+and may have changed since.</footer>
+</main></body></html>

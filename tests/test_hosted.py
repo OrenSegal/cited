@@ -488,10 +488,57 @@ def test_routes_and_methods(tmp_path):
     assert app.handle("POST", "/check", b"markdown=x", "text/plain").status == 415
 
 
-def test_payment_link_placeholder_until_configured():
+def test_buy_links_are_hidden_until_a_payment_link_is_set(tmp_path, server):
     app = webapp.App.from_env({"CITED_DATA_DIR": "/nonexistent"})
-    assert webapp.PAYMENT_LINK_PLACEHOLDER in _text(app.handle("GET", "/"))
-    assert app.access_codes == frozenset()
+    assert app.payment_link == "" and app.access_codes == frozenset()
+    assert "Buy a certificate" not in _text(app.handle("GET", "/"))
+    no_link = webapp.App(storage=st.LocalStorage(tmp_path / "data"), policy=LOCAL, access_codes=frozenset({"c"}),
+                         timeout=5.0, per_host_delay=0, use_wayback=False)
+    payment = _text(_post(no_link, markdown=_cert_draft(server), mode="certificate", code="wrong"))
+    links = _text(_post(no_link, markdown=_cert_draft(server), mode="links"))
+    for page in (payment, links):
+        assert "Buy a certificate" not in page and "Get a certificate for $9" not in page
+        assert "TODO" not in page and 'href=""' not in page
+
+
+# Demo lane: CITED_DEMO_MAX_CLAIMS, off unless set
+
+
+def _demo_app(tmp_path, cap: int) -> webapp.App:
+    return webapp.App(storage=st.LocalStorage(tmp_path / "data"), policy=LOCAL, access_codes=frozenset({"good-code"}),
+                      payment_link="https://buy.example/cert", demo_max_claims=cap, timeout=5.0,
+                      per_host_delay=0, use_wayback=False)
+
+
+def test_demo_lane_is_off_by_default(tmp_path, server):
+    assert webapp.App.from_env({"CITED_DATA_DIR": str(tmp_path)}).demo_max_claims == 0
+    assert webapp.App.from_env({"CITED_DATA_DIR": str(tmp_path), "CITED_DEMO_MAX_CLAIMS": "5"}).demo_max_claims == 5
+    app = _app(tmp_path, LOCAL)
+    assert "free demo" not in _text(app.handle("GET", "/"))
+    assert _post(app, markdown=_cert_draft(server), mode="certificate", code="").status == 402
+    assert server.total_hits == 0
+
+
+def test_demo_lane_runs_a_short_draft_without_a_code_and_labels_it(tmp_path, server):
+    app = _demo_app(tmp_path, cap=3)
+    assert "free demo certificate of up to 3 claims" in _text(app.handle("GET", "/"))
+    cert_id, _ = _start(app, _cert_draft(server), code="")
+    page, _ = _finish(app, cert_id)
+    html = _text(page)
+    assert page.status == 200 and "Demo certificate." in html and "Verified" in html
+    assert "default-src 'none'" in page.headers["Content-Security-Policy"]
+    assert json.loads((tmp_path / "data" / "certs" / f"{cert_id}.json").read_text())["demo"] is True
+    assert not (tmp_path / "data" / "codes").exists(), "a demo spends no code"
+    paid, _ = _finish(app, _start(app, _cert_draft(server))[0])  # a code still takes the paid path
+    assert "Demo certificate." not in _text(paid)
+    assert _post(app, markdown=_cert_draft(server), mode="certificate", code="good-code").status == 409
+
+
+def test_demo_lane_refuses_a_draft_over_the_cap(tmp_path, server):
+    response = _post(_demo_app(tmp_path, cap=2), markdown=_cert_draft(server), mode="certificate", code="")
+    assert response.status == 400
+    assert "free demo covers up to 2" in _text(response)
+    assert server.total_hits == 0
 
 
 def test_certificate_footer_is_unchanged_without_a_link():
