@@ -2,13 +2,13 @@
 
 [![CI](https://github.com/OrenSegal/cited/actions/workflows/ci.yml/badge.svg)](https://github.com/OrenSegal/cited/actions/workflows/ci.yml) [![License: MIT](https://img.shields.io/badge/license-MIT-black)](LICENSE)
 
-Part of [sous](https://github.com/OrenSegal/sous): tools for checking what coding agents actually do.
+cited re-fetches every page a claim cites and flags claims whose words, numbers or names are not on it. It is for anyone shipping LLM answers with citations, as a Claude Code plugin or a standard-library Python 3.10+ command; part of [sous](https://github.com/OrenSegal/sous).
 
-cited checks that a claim is on the page it cites. You give it a list of claims, each with a source URL. It fetches every URL itself and checks whether the claim's words, numbers and names appear on that page. Claims that are not there are flagged before the artifact carrying them reaches a person.
+On 29 hand-labelled claims about one page, it flags 10 of the 15 that are not on it: recall 0.67, 95% bootstrap CI 0.41-0.90 ([Results](#results)). It checks containment, not truth.
 
-It ships as a Claude Code plugin (a skill, a `/cited:check` command and a `cited` command-line tool), and the same tool runs anywhere with Python 3.10+. Standard library only.
+Try it from a fresh clone (fetches six live pages; exit 1 means some claims did not check out, as two should here):
 
-It checks containment, not truth. A `verified` claim is on the page; whether the page is right is a separate question.
+`git clone https://github.com/OrenSegal/cited && cd cited && bin/cited docs/examples/sample-draft.md`
 
 [![Sample certificate rendered locally by the cited CLI: 3 verified, 1 needs review, 2 not on page](docs/examples/sample-certificate.png)](docs/examples/sample-certificate.html)
 
