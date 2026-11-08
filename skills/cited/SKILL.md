@@ -2,6 +2,11 @@
 name: cited
 description: Before an agent ships any artifact that cites sources (a report, a lead list, a research summary, a changelog claim), re-fetch every cited source and confirm the claim is actually there — not just self-graded by the model that wrote it. Use when an agent's output includes claims attributed to a URL and those claims need to be trustworthy before a human sees them.
 license: MIT
+metadata:
+  openclaw:
+    homepage: https://github.com/OrenSegal/cited
+    requires:
+      bins: [python3]
 ---
 
 # cited
