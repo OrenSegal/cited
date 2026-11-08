@@ -1,0 +1,5 @@
+{
+  "name": "cited",
+  "version": "0.5.0",
+  "description": "Re-fetches every cited source and flags claims whose words, numbers or names are not on the page, so an agent's output is checked against the source instead of the model's own confidence."
+}
