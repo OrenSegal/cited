@@ -11,6 +11,8 @@
 
 ### Changed
 
+- `bench/run.py` also prints 95% bootstrap intervals over claims for recall and precision (2000 resamples, seed 0).
+- `hosted/`: pages and certificates carry an inline favicon (the CSP now allows `img-src data:`), the landing page has a meta description, and 404 pages link back to the form.
 - `hosted/`: with `CITED_PAYMENT_LINK` unset, Buy links are hidden instead of pointing at a `STRIPE_PAYMENT_LINK_TODO` placeholder.
 
 ### Fixed

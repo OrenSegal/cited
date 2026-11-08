@@ -86,6 +86,6 @@ Deploy a preview (push a branch, or Redeploy in the dashboard) and check, in ord
 
 ## 8. Promote
 
-Promote the preview to production, add a domain if wanted, and link the URL from the top of the repo README (replace "is not yet deployed"). Add a Supabase lifecycle rule or a periodic prune for `ratelimit/` keys, which are never cleaned up.
+Promote the preview to production, add a domain if wanted, and link the URL from the top of the repo README (replace "It is not deployed"). Add a Supabase lifecycle rule or a periodic prune for `ratelimit/` keys, which are never cleaned up.
 
 Per sale: Stripe emails you the payment; reply to the buyer with one unused code.

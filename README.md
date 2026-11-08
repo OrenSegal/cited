@@ -10,11 +10,11 @@ It ships as a Claude Code plugin (a skill, a `/cited:check` command and a `cited
 
 It checks containment, not truth. A `verified` claim is on the page; whether the page is right is a separate question.
 
-[![A cited certificate: 3 verified, 1 needs review, 2 not on page](docs/examples/sample-certificate.png)](docs/examples/sample-certificate.html)
+[![Sample certificate rendered locally by the cited CLI: 3 verified, 1 needs review, 2 not on page](docs/examples/sample-certificate.png)](docs/examples/sample-certificate.html)
 
-*A real run on six claims about RFC 2606, RFC 2119 and the Python 3.12.0 release page: 3 verified, 1 needs review, 2 not on page ([HTML](docs/examples/sample-certificate.html), [draft](docs/examples/sample-draft.md), [JSON](docs/examples/sample-report.json)).*
+*A sample certificate, rendered locally by the command-line tool, not a page from a live service. `docs/examples/render.sh` ran `cited sample-draft.md --certificate` against the live pages for six claims about RFC 2606, RFC 2119 and the Python 3.12.0 release (3 verified, 1 needs review, 2 not on page), then screenshotted the HTML with headless Chrome ([HTML](docs/examples/sample-certificate.html), [draft](docs/examples/sample-draft.md), [JSON](docs/examples/sample-report.json)).*
 
-`hosted/` holds a serverless certificate app (Vercel + Supabase + Stripe) that runs locally today and is not yet deployed; see [hosted/README.md](hosted/README.md).
+`hosted/` holds a certificate web app (Vercel + Supabase + Stripe). **It is not deployed**: there is no public URL, nothing has been sold through it, and its demo lane is off unless `CITED_DEMO_MAX_CLAIMS` is set. It runs locally; see [hosted/README.md](hosted/README.md).
 
 ## Components
 
@@ -47,7 +47,7 @@ Asking the model that wrote a claim how sure it is does not catch a claim it mad
 
 - **Made-up funding round.** "Acme Robotics raised a $12M Series A led by Sequoia", checked against a page that only names the company, scores `unsupported`, as does a quoted claim with the wrong number (`$12M` for `$15M`) or the wrong scale (`$40 billion` for `$40 million`). Pinned in `tests/test_tiering_core.py` ([cited#1](https://github.com/OrenSegal/cited/pull/1)).
 - **Offline research-note eval.** `evals/catch-fabricated-citation` hands an agent a note with five claims about RFC 2606 and recorded copies of the pages. Expected: two quotes verified, the wrong year (2001 for 1999) not on the page, the paraphrase sent to a person, the citation of a nonexistent RFC reported as broken.
-- **Labelled benchmark.** `python3 bench/run.py` (offline, no keys) scores cited on 29 hand-labelled claims about the recorded RFC 2606 page: 15 that are not on it, 14 that are. It flags 10 of the 15 (recall 0.67) and also flags 5 of the 14 supported ones (all `low_match`: paraphrases sent to a person). The five misses are a number written as a word (`six` for `four`) and four swapped lowercase words or phrases (`demo` for `example`, `valid` for `invalid`, `rejected` for `agreed`, `production DNS servers` for testing of DNS code). One page, one author, 29 claims: a regression check and an honest picture of the lexical approach, not an accuracy estimate for the web.
+- **Labelled benchmark.** `python3 bench/run.py` (offline, no keys) scores cited on 29 hand-labelled claims about the recorded RFC 2606 page: 15 that are not on it, 14 that are. It flags 10 of the 15 (recall 0.67) and also flags 5 of the 14 supported ones (all `low_match`: paraphrases sent to a person). The five misses are a number written as a word (`six` for `four`) and four swapped lowercase words or phrases (`demo` for `example`, `valid` for `invalid`, `rejected` for `agreed`, `production DNS servers` for testing of DNS code). Precision of the flags is also 0.67 (10 of 15). With n = 29, the 95% bootstrap intervals over claims are wide: recall 0.41-0.90, precision 0.42-0.91 (`bench/run.py` prints both; 2000 resamples, seed 0). The claims and their labels were written in one commit (3a407b3) by the tool's author, with Claude as co-author; there is no second labeller. That is the precision/recall trade-off in the thresholds: a stricter bar for `verified` would catch more swapped-word claims but send more real quotes to a person, and the current bar already sends 5 of the 14 supported claims there. One page, one labeller, 29 claims: a regression check and a picture of the lexical approach, not an accuracy estimate for the web.
 - **Where it falls short.** The same RFC page let a swapped lowercase word pass as `verified`; see [Limitations](#limitations).
 
 ## Install
@@ -230,6 +230,7 @@ cited fetches URLs an agent wrote, so it treats them as hostile. Only `http` and
 
 ## Limitations
 
+- **The accuracy numbers are thin.** The benchmark is 29 claims about one page, written and labelled by the tool's author, so recall 0.67 has a 95% interval of 0.41-0.90 and says nothing about other sites, languages or claim styles. The 15 unsupported claims are of two kinds the author chose: edits of the page's own sentences (a swapped word, number or name) and invented facts about the RFC. Dead links, bot walls and invented URLs are covered by tests, not by this benchmark.
 - **Matching is lexical.** It compares words and word sequences. It cannot tell whether a reworded claim means the same as the page, or whether a quoted line means what your artifact says.
 - **Substituted lowercase words pass.** Only numbers, capitalized words and one-letter identifiers are checked as specifics. `"The .demo TLD is recommended for use in documentation"` checked against RFC 2606 (which says `.example`) came back `verified`, because every other word is quoted.
 - **Numbers written as words are not checked.** `"reserves seven top level domain names"` against a page that says "four" came back `low_match`, not `unsupported`. It still blocks, but for the wrong reason.
