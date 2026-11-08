@@ -47,6 +47,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "skills" / "cite
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from certificate import CSS as BASE_CSS  # noqa: E402
+from certificate import ICON  # noqa: E402
 from certificate import render as render_certificate  # noqa: E402
 from extract import extract  # noqa: E402
 from fetcher import Fetcher, utc_now  # noqa: E402
@@ -65,6 +66,8 @@ FETCH_TIMEOUT = 8.0
 CONCURRENCY = 8
 CITED_HOME = "https://github.com/OrenSegal/cited"
 CERT_ID = re.compile(r"[A-Za-z0-9_-]{12,32}")
+NO_CERT = ('<h1>No such certificate</h1><p class="lede">The link may be mistyped, or the certificate '
+           'was never made. <a href="/">Check a draft</a>.</p>')
 
 
 def _new_cert_id() -> str:
@@ -93,7 +96,7 @@ RATE_LIMIT = (10, 600)  # POST /check: requests per window (seconds), per client
 STRIPE_TOLERANCE = 300  # seconds a webhook signature stays valid
 
 SECURITY_HEADERS = {
-    "Content-Security-Policy": "default-src 'none'; style-src 'unsafe-inline'; form-action 'self'; "
+    "Content-Security-Policy": "default-src 'none'; style-src 'unsafe-inline'; img-src data:; form-action 'self'; "
                                "base-uri 'none'; frame-ancestors 'none'",
     "X-Content-Type-Options": "nosniff",
     "Referrer-Policy": "no-referrer",
@@ -189,7 +192,7 @@ def _sha(text: str) -> str:
 def _page(title: str, body: str, status: int = 200, head: str = "") -> Response:
     doc = f"""<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>{_esc(title)}</title>{head}<style>{CSS}</style></head>
+<title>{_esc(title)}</title>{ICON}{head}<style>{CSS}</style></head>
 <body><main class="wrap">{body}
 <footer>Checked by <a href="{CITED_HOME}">cited</a> {_esc(VERSION)}. cited checks that a claim's words are on the
 page it cites. That is containment, not truth.</footer>
@@ -363,7 +366,8 @@ class App:
                 return self._only(method, "GET") or self.delete(cert_id, query.get("key", [""])[0], confirm=False)
             if route.startswith("/c/"):
                 return self._only(method, "GET") or self.certificate(route[3:])
-            return _page("Not found", "<h1>Not found</h1>", 404)
+            return _page("Not found", "<h1>Not found</h1>"
+                         '<p class="lede">Nothing lives at this address. <a href="/">Check a draft</a>.</p>', 404)
         except UserError as exc:
             return self.error(str(exc), exc.status)
         except StorageError as exc:
@@ -420,7 +424,8 @@ sources are dead, and which claims are not on the page they cite.</p>
   <span class="why">Big drafts take a minute.</span></div>
 </form>
 <p class="note">A certificate shows whether each claim's own words, numbers and names are on the page it cites.
-It does not show the page is right.</p>""")
+It does not show the page is right.</p>""", head='<meta name="description" content="Paste a draft and cited '
+                     're-fetches every page it cites: which sources are dead, and which claims are not on them.">')
 
     def _cert_status(self, cert_id: str) -> tuple[bytes | None, dict[str, Any] | None, bool]:
         """(finished html, job meta, deleted) for a valid id."""
@@ -435,7 +440,7 @@ It does not show the page is right.</p>""")
 
     def certificate(self, cert_id: str) -> Response:
         if not CERT_ID.fullmatch(cert_id):
-            return _page("Not found", "<h1>No such certificate</h1>", 404)
+            return _page("Not found", NO_CERT, 404)
         data, meta, deleted = self._cert_status(cert_id)
         if deleted:
             return _page("Deleted", "<h1>This certificate was deleted</h1>"
@@ -446,7 +451,7 @@ It does not show the page is right.</p>""")
                 return self.progress_page(meta, done, total)
             data = self.storage.get(f"certs/{cert_id}.html") if self.storage else None
         if data is None:
-            return _page("Not found", "<h1>No such certificate</h1>", 404)
+            return _page("Not found", NO_CERT, 404)
         return Response(200, data, {"Content-Type": "text/html; charset=utf-8",
                                     "Cache-Control": "private, max-age=60", **SECURITY_HEADERS})
 
@@ -699,7 +704,7 @@ Anyone with it can delete the certificate.</p>
 
     def delete(self, cert_id: str, key: str, *, confirm: bool) -> Response:
         if not CERT_ID.fullmatch(cert_id):
-            return _page("Not found", "<h1>No such certificate</h1>", 404)
+            return _page("Not found", NO_CERT, 404)
         storage = self._storage()
         raw = storage.get(f"jobs/{cert_id}.json")
         if raw is None:

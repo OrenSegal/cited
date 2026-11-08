@@ -484,7 +484,11 @@ def test_routes_and_methods(tmp_path):
     assert "https://buy.example/cert" in _text(landing)
     assert app.handle("GET", "/check").status == 405
     assert app.handle("POST", "/").status == 405
-    assert app.handle("GET", "/nope").status == 404
+    missing = app.handle("GET", "/nope")
+    assert missing.status == 404 and '<a href="/">' in _text(missing), "a 404 is not a dead end"
+    # The favicon is an inline data: image, so the CSP must allow exactly that.
+    assert 'rel="icon" href="data:image/svg+xml' in _text(landing)
+    assert "img-src data:;" in landing.headers["Content-Security-Policy"]
     assert app.handle("POST", "/check", b"markdown=x", "text/plain").status == 415
 
 
