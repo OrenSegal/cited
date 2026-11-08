@@ -38,6 +38,13 @@ TIER_MEANING = {
     TIER_BROKEN: "The cited page could not be reached, live or archived.",
 }
 
+# A check mark on the ink colour, inline so a certificate file needs nothing else.
+ICON = ('<link rel="icon" href="data:image/svg+xml,'
+        "%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E"
+        "%3Crect width='32' height='32' rx='7' fill='%231b1a16'/%3E"
+        "%3Cpath d='M9 16.5l4.5 4.5L23 11' fill='none' stroke='%23f7f5f0' stroke-width='3.2' "
+        "stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E\">")
+
 # Shared with the hosted pages (hosted/webapp.py), so a certificate and the
 # form that made it read as one product. Light and dark follow the reader's
 # system setting; tier colours keep one meaning in both.
@@ -204,7 +211,7 @@ listed rather than scored.</p>
         byline = f'Checked by <a href="{_esc(footer_link)}">cited</a>'
     return f"""<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Source check: {_esc(doc_name)}</title>
+<title>Source check: {_esc(doc_name)}</title>{ICON}
 <style>{CSS}</style></head>
 <body><main class="wrap">
 <h1 class="v-{tone}">{_esc(headline)}</h1>
