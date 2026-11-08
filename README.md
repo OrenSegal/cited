@@ -16,6 +16,24 @@ It checks containment, not truth. A `verified` claim is on the page; whether the
 
 `hosted/` holds a serverless certificate app (Vercel + Supabase + Stripe) that runs locally today and is not yet deployed; see [hosted/README.md](hosted/README.md).
 
+## Components
+
+```mermaid
+flowchart LR
+  BIN["bin/cited, /cited:check"] --> CLI["verify_claims.py"]
+  CLI -->|"markdown drafts"| EX["extract.py"]
+  CLI --> FE["fetcher.py: retries, throttle, cache, Wayback"]
+  FE --> SF["safe_fetch.py: the only socket"]
+  SF --> PT["page_text.py"]
+  CLI --> TC["tiering_core.py: containment, specifics, tiers"]
+  CLI -->|"--certificate"| CERT["certificate.py"]
+  WEB["hosted/webapp.py (not deployed)"] --> CLI
+  WEB --> ST["hosted/storage.py: local or Supabase"]
+```
+
+Why it is built this way, with the alternatives that were rejected:
+[docs/decisions.md](docs/decisions.md).
+
 ## Why
 
 Asking the model that wrote a claim how sure it is does not catch a claim it made up. cited checks the page instead, fetched fresh, with a Wayback Machine fallback when the live page is gone or empty.
