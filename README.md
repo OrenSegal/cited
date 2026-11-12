@@ -113,7 +113,7 @@ An invalid file is rejected before anything is fetched, with every problem liste
 | `unsupported` | Not on page | The page loaded and is readable, and the claim, or one of its numbers or names, is not on it. The fabrication signal. | yes | yes |
 | `broken` | Broken source | The URL is invalid, refused (see Security), or unreachable, and no archived copy helped. | yes | yes |
 | `unverified` | Unverified | Never checked: the page is a PDF or binary, too thin to read (a JavaScript app, a consent wall), too large to read in full and the claim was not in the part read, or missing from an `--offline` cache. | no | yes |
-| `snippet_only` | Snippet-only | The site blocks scripted fetches (HTTP 403/429, or a bot challenge page) and no archived copy exists. | no | yes |
+| `snippet_only` | Snippet-only | The site blocks scripted fetches and no archived copy exists: HTTP 429 from any site, or HTTP 403 or a bot challenge page from a site on the built-in list (reddit.com, x.com, twitter.com, linkedin.com, glassdoor.com, indeed.com). A 403 from any other site is `broken`. | no | yes |
 
 ## Exit codes
 
