@@ -451,6 +451,11 @@ def fetch_page(url: str, timeout: float, policy: FetchPolicy | None = None, *,
         timer.cancel()
 
     raw_type = headers.get("Content-Type") or ""
+    encoding = (headers.get("Content-Encoding") or "identity").strip().lower()
+    if encoding != "identity":
+        # We asked for identity and decompress nothing: these bytes are not the page's text.
+        return FetchResult(status=status, final_url=final_url, content_type=f"{raw_type or 'unknown type'}, "
+                           f"Content-Encoding: {encoding}", kind="binary", truncated=truncated)
     kind = classify(headers.get_content_type() if raw_type else "", body)
     charset = headers.get_content_charset() if raw_type else None
     extra = {"body": body, "charset": charset} if keep_body else {}

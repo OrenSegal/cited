@@ -95,6 +95,15 @@ def _ldjson_strings(raw: str) -> str:
     return " ".join(found)
 
 
+# Tags that end a line of text. Minified HTML has no whitespace between them,
+# so without a break "<td>2023</td><td>15%</td>" would read "202315%".
+_BREAKING_TAGS = frozenset({
+    "address", "article", "aside", "blockquote", "br", "caption", "dd", "details", "div", "dl", "dt", "figcaption",
+    "figure", "footer", "form", "h1", "h2", "h3", "h4", "h5", "h6", "header", "hr", "li", "main", "nav", "ol",
+    "option", "p", "pre", "section", "summary", "table", "tbody", "td", "tfoot", "th", "thead", "title", "tr", "ul",
+})
+
+
 class _TextExtractor(HTMLParser):
     """Visible text, plus meta descriptions and JSON-LD string values: the
     latter two are what a JavaScript-rendered page still exposes to a plain
@@ -107,6 +116,8 @@ class _TextExtractor(HTMLParser):
         self._in_ldjson = False
 
     def handle_starttag(self, tag: str, attrs: Any) -> None:
+        if tag in _BREAKING_TAGS:
+            self._chunks.append(" ")
         if tag == "script":
             attr_map = dict(attrs)
             self._in_ldjson = (attr_map.get("type") or "").strip().lower() == "application/ld+json"
@@ -121,6 +132,8 @@ class _TextExtractor(HTMLParser):
                 self._chunks.append(f" {content} ")
 
     def handle_endtag(self, tag: str) -> None:
+        if tag in _BREAKING_TAGS:
+            self._chunks.append(" ")
         if tag in ("script", "style"):
             self._skip = False
             self._in_ldjson = False

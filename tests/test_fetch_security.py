@@ -182,6 +182,21 @@ def test_redirect_chain_is_capped(server):
 
 # ── Size, time, content ────────────────────────────────────────────────────
 
+def test_compressed_body_sent_despite_identity_is_not_read_as_text(server):
+    import gzip
+    server.add("/gz", body=gzip.compress(b"<p>" + bytes(range(256)) * 40 + b"</p>"),
+               headers={"Content-Type": "text/html", "Content-Encoding": "gzip"})
+    result = safe_fetch.fetch_page(server.url("/gz"), 5, _local_policy())
+    assert result.status == 200
+    assert (result.kind, result.text) == ("binary", "")  # check_source reports binary as unverified
+
+
+def test_adjacent_block_tags_do_not_glue_their_text(server):
+    server.add("/min", body="<table><tr><td>2023</td><td>15%</td></tr></table><ul><li>Sequoia</li><li>Benchmark</li></ul>"
+                            "<h1>Acme raises $12M</h1><p>Sequoia led<br>the round</p><p>docu<b>ment</b>ation</p>")
+    text = safe_fetch.fetch_page(server.url("/min"), 5, _local_policy()).text
+    assert text == "2023 15% Sequoia Benchmark Acme raises $12M Sequoia led the round documentation"
+
 def test_response_size_is_capped_and_flagged(server):
     server.add("/big", body="<p>" + "filler words here " * 100_000 + "</p>")
     result = safe_fetch.fetch_page(server.url("/big"), 5, _local_policy(max_bytes=50_000))

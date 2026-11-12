@@ -11,16 +11,19 @@
 
 ### Changed
 
+- CI also runs the tests on Python 3.14.
+- README: the tier table said any HTTP 403 gives `snippet_only`. It does only for the sites on the built-in list; a 403 from another site is `broken`. The table now says so.
+- The plugin manifest no longer lists `fact-checking` as a keyword: cited checks containment, not truth.
+- `hosted/RUNLOG.md`: input documents are referred to by neutral labels.
+
 - `bench/run.py` also prints 95% bootstrap intervals over claims for recall and precision (2000 resamples, seed 0).
 - `hosted/`: pages and certificates carry an inline favicon (the CSP now allows `img-src data:`), the landing page has a meta description, and 404 pages link back to the form.
 - `hosted/`: with `CITED_PAYMENT_LINK` unset, Buy links are hidden instead of pointing at a `STRIPE_PAYMENT_LINK_TODO` placeholder.
 
 ### Fixed
 
-- `--timeout` did not bound a request: a server sending its headers one byte at a time held a fetch open for as long as it kept sending (22 s measured with `--timeout 1`). A timer now shuts the request's sockets down at the timeout.
-- A page declaring `charset=undefined` or `charset=idna`, in its Content-Type or a `<meta>` tag, raised `UnicodeError` out of `fetch_page`; in the hosted app one such link turned a link check into a 500. Those codecs now fall through like an unknown charset.
-- With `--proxy-from-env`, a percent-escaped host (`https://%31%32%37.0.0.1/`) passed the address check and was sent to the proxy as `CONNECT 127.0.0.1:443`. Hosts containing `%` are refused in every mode.
-
+- A run that checked no claims (an empty claims file, or a draft where no link had a claim attached) exited 0 and its certificate read "Every claim was quoted from its cited source". It now exits 5 and the certificate reads "Nothing was checked".
+- Drafts that cite with numbered markers and a Sources list, footnotes or reference-style links yielded no claims. The extractor now resolves those to their URLs.
 - Removed a duplicated `Fixed` block under 0.5.0.
 
 ## 0.5.0

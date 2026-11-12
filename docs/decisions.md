@@ -53,8 +53,8 @@ verbatim quote inside a long page scores near zero.
 
 **Consequences.** Matching is lexical. Negation, qualifiers, numbers written
 as words and swapped lowercase words are invisible to it (README
-"Limitations"). The labelled benchmark measures that: recall 0.67 on 15
-unsupported claims, 5 of 14 supported claims sent to a person. The README
+"Limitations"). The labelled benchmark measures that: recall 0.73 on 15
+unsupported claims, 6 of 14 supported claims sent to a person. The README
 points to an LLM or NLI entailment check as a separate tool for judging
 paraphrases; whether one was considered for cited itself is not recorded.
 
