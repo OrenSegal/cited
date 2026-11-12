@@ -11,7 +11,10 @@
 
 ### Changed
 
-- `bench/run.py` also prints the tier of every claim by label, recall counting `unsupported` alone with its interval, and two baselines on the same claims (flag everything; flag unless the claim is a verbatim substring of the page). The README first screen and Results state them, including that the verbatim baseline's recall is higher.
+- CI also runs the tests on Python 3.14.
+- README: the tier table said any HTTP 403 gives `snippet_only`. It does only for the sites on the built-in list; a 403 from another site is `broken`. The table now says so.
+- The plugin manifest no longer lists `fact-checking` as a keyword: cited checks containment, not truth.
+- `hosted/RUNLOG.md`: input documents are referred to by neutral labels.
 
 - `bench/run.py` also prints 95% bootstrap intervals over claims for recall and precision (2000 resamples, seed 0).
 - `hosted/`: pages and certificates carry an inline favicon (the CSP now allows `img-src data:`), the landing page has a meta description, and 404 pages link back to the form.
@@ -19,11 +22,8 @@
 
 ### Fixed
 
-- A claim came back `verified` when its number matched only footnote markers (`12` against `1,2`), another currency (`€40 million` against `$40 million`) or the opposite sign (`5%` against `-5%`). A comma now joins digits only as a thousands separator, and a number the page writes only with another currency symbol or sign is reported as not on the page.
-- A claim assembled from phrases in different parts of a page came back `verified`. The quoted score now counts only word sequences found in one passage, and a name that is on the page but not near that passage sends the claim to `low_match`. Benchmark after the change: 11 of 15 absent claims flagged (was 10), 6 of 14 supported claims flagged (was 5).
-- A true claim came back `unsupported` when the page was minified HTML (text of adjacent table cells, list items, headings and paragraphs was joined with no space), used the possessive of a name (`Sequoia's` against `Sequoia`), or wrote a number as `15 per cent`, `0.50` or `.5`.
-- A response sent with `Content-Encoding: gzip` despite `Accept-Encoding: identity` had its compressed bytes scored as page text. It is now `unverified`.
-
+- A run that checked no claims (an empty claims file, or a draft where no link had a claim attached) exited 0 and its certificate read "Every claim was quoted from its cited source". It now exits 5 and the certificate reads "Nothing was checked".
+- Drafts that cite with numbered markers and a Sources list, footnotes or reference-style links yielded no claims. The extractor now resolves those to their URLs.
 - Removed a duplicated `Fixed` block under 0.5.0.
 
 ## 0.5.0
