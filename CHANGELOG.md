@@ -11,6 +11,11 @@
 
 ### Changed
 
+- CI also runs the tests on Python 3.14.
+- README: the tier table said any HTTP 403 gives `snippet_only`. It does only for the sites on the built-in list; a 403 from another site is `broken`. The table now says so.
+- The plugin manifest no longer lists `fact-checking` as a keyword: cited checks containment, not truth.
+- `hosted/RUNLOG.md`: input documents are referred to by neutral labels.
+
 - `bench/run.py` also prints 95% bootstrap intervals over claims for recall and precision (2000 resamples, seed 0).
 - `hosted/`: pages and certificates carry an inline favicon (the CSP now allows `img-src data:`), the landing page has a meta description, and 404 pages link back to the form.
 - `hosted/`: with `CITED_PAYMENT_LINK` unset, Buy links are hidden instead of pointing at a `STRIPE_PAYMENT_LINK_TODO` placeholder.
