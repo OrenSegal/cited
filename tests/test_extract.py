@@ -15,6 +15,38 @@ def buckets(md):
     return {p.link_text: (p.bucket, p.claim) for p in extract(md, "t")}
 
 
+class ReferenceStyleCitations(unittest.TestCase):
+    """Numbered, footnote and reference-style citations resolve to their URLs.
+    Unresolved, a report that cites this way yields no claims and nothing is checked."""
+
+    DRAFT = (
+        "Acme raised $12 million from Sequoia in March [1]. Revenue grew 400% last year[^2].\n"
+        "Globex was fined for fraud, according to [the regulator][reg].\n\n"
+        "Scores are in array[0] and [1](https://example.com/inline) is already a link.\n\n"
+        "## Sources\n\n"
+        "1. [Acme press release](https://example.com/press)\n\n"
+        "[^2]: Annual report, https://example.com/annual\n"
+        "[reg]: https://example.com/regulator\n"
+    )
+
+    def checked(self):
+        return {p.source_url: (p.claim, p.line) for p in extract(self.DRAFT, "t") if p.bucket != "excluded"}
+
+    def test_each_style_yields_its_claim_on_its_line(self):
+        self.assertEqual(self.checked(), {
+            "https://example.com/press": ("Acme raised $12 million from Sequoia in March.", 1),
+            "https://example.com/annual": ("Revenue grew 400% last year.", 1),
+            "https://example.com/regulator": ("Globex was fined for fraud, according to the regulator.", 2),
+        })
+
+    def test_the_sources_list_itself_stays_bibliography(self):
+        listed = [p for p in extract(self.DRAFT, "t") if p.line == 8]
+        self.assertEqual([p.bucket for p in listed], ["excluded"])
+
+    def test_a_marker_with_no_definition_is_left_alone(self):
+        self.assertEqual(extract("The total rose again this year [7].", "t"), [])
+
+
 class NavigationalLinks(unittest.TestCase):
     """A link with no claim can never pass containment, so it must never fail it."""
 

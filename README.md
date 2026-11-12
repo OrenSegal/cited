@@ -92,7 +92,7 @@ Input is a JSON array. `claim` and `source_url` are required; `id` (string or in
 
 ### From a markdown draft
 
-Point cited at a `.md`, `.markdown` or `.mdx` file and it finds every inline link, works out which claim each link is being asked to support, and checks those pairs the same way.
+Point cited at a `.md`, `.markdown` or `.mdx` file and it finds every inline link, works out which claim each link is being asked to support, and checks those pairs the same way. Numbered markers (`[1]` with a numbered entry under a Sources heading), footnotes (`[^1]` with a `[^1]: url` note) and reference-style links (`[text][ref]`) are resolved to their URLs first.
 
 ```bash
 cited draft.md                              # check every sourced claim in the draft
@@ -124,6 +124,7 @@ An invalid file is rejected before anything is fetched, with every problem liste
 | 2 | Usage error or invalid claims file. Nothing was fetched. |
 | 3 | `--offline` and at least one source had no cached copy, and no other code applies. |
 | 4 | An internal error while checking a claim, or `--annotate-out` or `--certificate` could not be written, and nothing was blocking. The other claims are still checked and reported. |
+| 5 | No claim was checked: the input had no claims, or no link in the draft had a claim attached. |
 | 130 | Interrupted. |
 
 ## Options
