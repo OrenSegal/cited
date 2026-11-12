@@ -17,6 +17,11 @@
 
 ### Fixed
 
+- A claim came back `verified` when its number matched only footnote markers (`12` against `1,2`), another currency (`€40 million` against `$40 million`) or the opposite sign (`5%` against `-5%`). A comma now joins digits only as a thousands separator, and a number the page writes only with another currency symbol or sign is reported as not on the page.
+- A claim assembled from phrases in different parts of a page came back `verified`. The quoted score now counts only word sequences found in one passage, and a name that is on the page but not near that passage sends the claim to `low_match`. Benchmark after the change: 11 of 15 absent claims flagged (was 10), 6 of 14 supported claims flagged (was 5).
+- A true claim came back `unsupported` when the page was minified HTML (text of adjacent table cells, list items, headings and paragraphs was joined with no space), used the possessive of a name (`Sequoia's` against `Sequoia`), or wrote a number as `15 per cent`, `0.50` or `.5`.
+- A response sent with `Content-Encoding: gzip` despite `Accept-Encoding: identity` had its compressed bytes scored as page text. It is now `unverified`.
+
 - Removed a duplicated `Fixed` block under 0.5.0.
 
 ## 0.5.0
