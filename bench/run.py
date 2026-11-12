@@ -6,9 +6,15 @@ blocks (unsupported, low_match, broken). Run: python3 bench/run.py
 
 The 95% intervals resample the 29 claims with replacement (2000 resamples, seed 0).
 Claims share one page and one labeller, so they understate the real uncertainty.
+
+Two baselines are scored on the same claims, so the numbers can be read against
+something: flagging every claim, and flagging every claim that is not a verbatim
+substring of the page (case, punctuation and whitespace ignored).
 """
+import collections
 import json
 import random
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -66,3 +72,34 @@ lo, hi = bootstrap(recall)
 print(f"recall 95% bootstrap CI {lo:.2f}-{hi:.2f}")
 lo, hi = bootstrap(precision)
 print(f"precision 95% bootstrap CI {lo:.2f}-{hi:.2f}")
+
+print("\ntier by label:")
+tiers = collections.Counter((g["on_page"], by_id[g["id"]]["tier"]) for g in gold)
+for tier in ("unsupported", "low_match", "verified"):
+    print(f"  {tier:<12} not on page {tiers[(False, tier)]:>2}   on page {tiers[(True, tier)]:>2}")
+
+# `unsupported` is the tier the tool calls the fabrication signal; low_match only asks for a person.
+outcomes = [(g["on_page"], by_id[g["id"]]["tier"] == "unsupported") for g in gold]
+hard = sum(f for on_page, f in outcomes if not on_page)
+lo, hi = bootstrap(recall)
+print(f"\nunsupported only: {hard} of {absent} absent claims (recall {hard / absent:.2f}, 95% bootstrap CI {lo:.2f}-{hi:.2f}), "
+      f"{sum(f for on_page, f in outcomes if on_page)} of {present} supported claims")
+
+
+def squash(text):
+    return " ".join(re.sub(r"[^a-z0-9]+", " ", text.lower()).split())
+
+
+pages = {}
+for path in CACHE.glob("*.json"):
+    entry = json.loads(path.read_text())
+    if entry.get("kind") == "page":
+        pages[entry["url"]] = squash(entry["data"]["text"])
+print("\nbaselines on the same claims (recall, supported claims flagged, precision):")
+for name, flag in (("cited", lambda g: by_id[g["id"]]["blocking"]),
+                   ("flag unless verbatim", lambda g: squash(g["claim"]) not in pages[g["source_url"]]),
+                   ("flag everything", lambda g: True)):
+    b_tp = sum(1 for g in gold if not g["on_page"] and flag(g))
+    b_fp = sum(1 for g in gold if g["on_page"] and flag(g))
+    print(f"  {name:<21} {b_tp} of {absent} ({b_tp / absent:.2f})   {b_fp} of {present} ({b_fp / present:.2f})   "
+          f"{b_tp / (b_tp + b_fp):.2f}")
