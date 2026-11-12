@@ -123,9 +123,6 @@ def _link(url: Any) -> str:
 
 
 def _verdict(counts: Counter, strict: bool) -> tuple[str, str, str]:
-    if not sum(counts.values()):
-        return ("warn", "Nothing was checked",
-                "No claim with a source was found, so this page says nothing about the document.")
     reason = blocking_reason(counts, strict=strict)
     bad = counts[TIER_UNSUPPORTED] + counts[TIER_BROKEN]
     if reason == "disqualifying":

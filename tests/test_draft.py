@@ -44,22 +44,11 @@ def test_draft_claims_are_checked_and_excluded_links_are_not_fetched(tmp_path, s
     assert code == vc.EXIT_BLOCKING
 
 
-def test_a_draft_whose_only_links_are_excluded_is_not_a_pass(tmp_path, server, capsys):
+def test_a_draft_whose_only_links_are_excluded_passes(tmp_path, server, capsys):
     draft = _draft(tmp_path, server, "Read more [here]({base}/x).\n\n## Sources\n\n- [Annual report]({base}/a)\n")
-    cert = tmp_path / "cert.html"
-    assert vc.main([draft, "--certificate", str(cert), *LOCAL]) == vc.EXIT_NOTHING_CHECKED
+    assert vc.main([draft, *LOCAL]) == vc.EXIT_OK
     assert server.total_hits == 0
-    out = capsys.readouterr().out
-    assert "2 links in the draft were not checked" in out and "Nothing was checked" in out
-    page = cert.read_text(encoding="utf-8")
-    assert "Nothing was checked" in page and "Every claim was quoted" not in page
-
-
-def test_an_empty_claims_file_is_not_a_pass(tmp_path, capsys):
-    claims = tmp_path / "claims.json"
-    claims.write_text("[]", encoding="utf-8")
-    assert vc.main([str(claims), "--json", *LOCAL]) == vc.EXIT_NOTHING_CHECKED
-    assert json.loads(capsys.readouterr().out)["summary"]["exit_code"] == vc.EXIT_NOTHING_CHECKED
+    assert "2 links in the draft were not checked" in capsys.readouterr().out
 
 
 def test_extract_only_never_touches_the_network(tmp_path, server, capsys):

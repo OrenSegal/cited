@@ -105,23 +105,13 @@ def _ngrams(words: list[str], size: int) -> set[tuple[str, ...]]:
     return {tuple(words[i:i + size]) for i in range(len(words) - size + 1)}
 
 
-# A comma joins digits only as a thousands separator ("1,000", never the
-# footnote markers "1,2"), and a decimal may start with its point (".5").
-_NUMBER = r"\d{1,3}(?:,\d{3})+(?:\.\d+)?|\d+(?:\.\d+)*|(?<![\w.])\.\d+"
-
-
 def _normalize_number(number: str) -> str:
-    """ "1,000" and "1000" are one number, as are "15.0" and "15", "0.50" and "0.5", ".5" and "0.5". """
-    number = number.replace(",", "")
-    if number.startswith("."):
-        number = "0" + number
-    if re.fullmatch(r"\d+\.\d+", number):
-        number = number.rstrip("0").rstrip(".")
-    return number
+    """ "1,000" and "1000" are one number, as are "15.0" and "15". """
+    return re.sub(r"\.0+$", "", number.replace(",", ""))
 
 
 def _numbers(text: str) -> set[str]:
-    return {_normalize_number(n) for n in re.findall(_NUMBER, str(text or ""))}
+    return {_normalize_number(n) for n in re.findall(r"\d+(?:[.,]\d+)*", str(text or ""))}
 
 
 _SCALE_WORDS = {
@@ -138,8 +128,8 @@ def _quantities(text: str) -> set[str]:
     become "40 million". A bare number check can't tell $40 million from
     $40 billion; this can."""
     found = set()
-    pattern = rf"({_NUMBER})\s*(%|[A-Za-z]+)\b|({_NUMBER})\s*(%)"
-    for m in re.finditer(pattern, re.sub(r"(?i)\bper cent\b", "percent", str(text or ""))):
+    pattern = r"(\d+(?:[.,]\d+)*)\s*(%|[A-Za-z]+)\b|(\d+(?:[.,]\d+)*)\s*(%)"
+    for m in re.finditer(pattern, str(text or "")):
         num, unit = (m.group(1), m.group(2)) if m.group(1) else (m.group(3), m.group(4))
         scale = _SCALE_WORDS.get(unit.lower())
         if scale:
@@ -174,35 +164,6 @@ _SENTENCE_OPENERS = frozenset({
 })
 
 
-_MARKED_NUMBER = re.compile(rf"(?<![\w.])([-\u2212])?([$\u20ac\u00a3\u00a5\u20b9])?\s?({_NUMBER})")
-
-
-def _marks(text: str) -> dict[str, set[tuple[bool, str]]]:
-    """Each number in `text` with how it is written there: (negative, currency symbol)."""
-    found: dict[str, set[tuple[bool, str]]] = {}
-    for minus, symbol, number in _MARKED_NUMBER.findall(str(text or "")):
-        found.setdefault(_normalize_number(number), set()).add((bool(minus), symbol))
-    return found
-
-
-def _mismarked_numbers(claim: str, page_text: str) -> list[str]:
-    """Numbers the page has, but only with the other sign or another currency:
-    "5%" against "-5%", "\u20ac40 million" against "$40 million". A page that also
-    writes the number bare ("40 million dollars") is not held to a symbol."""
-    page = _marks(page_text)
-    out = []
-    for number, marks in _marks(claim).items():
-        on_page = page.get(number)
-        if not on_page:
-            continue
-        for negative, symbol in sorted(marks):
-            if negative not in {n for n, _ in on_page}:
-                out.append(f"{'-' if negative else ''}{number} (the page has {'' if negative else '-'}{number})")
-            elif symbol and not {symbol, ""} & {s for _, s in on_page}:
-                out.append(f"{symbol}{number}")
-    return out
-
-
 def missing_specifics(claim: str, page_text: str) -> list[str]:
     """Numbers (with their scale word), capitalized names and one-letter
     identifiers like "Series B" in the claim that do not appear on the page.
@@ -219,23 +180,15 @@ def missing_specifics(claim: str, page_text: str) -> list[str]:
     page_lower = " " + " ".join(_words(page_text)) + " "
     missing += sorted(i for i in _letter_identifiers(claim)
                       if " " + " ".join(_words(i)) + " " not in page_lower)
-    missing += [m for m in _mismarked_numbers(claim, page_text) if m not in missing]
-    # "Sequoia's" and "Sequoia" are the same name.
-    page_words = {w.removesuffix("'s") for w in _words(page_text)}
-    missing += [n for n in _names(claim) if n.lower().removesuffix("'s") not in page_words and n not in missing]
-    return missing
-
-
-def _names(claim: str) -> list[str]:
-    """Capitalized tokens standing in for names, in order, each once."""
-    names: dict[str, None] = {}
+    page_words = set(_words(page_text))
     for i, sentence in enumerate(_SENTENCE_BREAK.split(str(claim or ""))):
         tokens = re.findall(r"[A-Za-z][A-Za-z']*", sentence)
         skip_first = i == 0 or (tokens and (tokens[0].lower() in _STOPWORDS or tokens[0].lower() in _SENTENCE_OPENERS))
         for token in tokens[1:] if skip_first else tokens:
-            if len(token) >= 2 and token[0].isupper():
-                names[token] = None
-    return list(names)
+            if len(token) >= 2 and token[0].isupper() and token.lower() not in page_words:
+                if token not in missing:
+                    missing.append(token)
+    return missing
 
 
 # A word this close to a number, in the same sentence, is taken to be about it.
@@ -247,9 +200,9 @@ def _number_windows(text: str) -> list[tuple[str, list[str]]]:
     """Each number in `text`, with the words around it in its sentence."""
     found = []
     for sentence in _SENTENCE_BREAK.split(str(text or "")):
-        tokens = re.findall(rf"{_NUMBER}|[A-Za-z][A-Za-z']*", sentence)
+        tokens = re.findall(r"\d+(?:[.,]\d+)*|[A-Za-z][A-Za-z']*", sentence)
         for i, token in enumerate(tokens):
-            if not token[0].isalpha():
+            if token[0].isdigit():
                 near = tokens[max(0, i - _NUMBER_WINDOW):i] + tokens[i + 1:i + 1 + _NUMBER_WINDOW]
                 found.append((_normalize_number(token), [w for w in near if w[0].isalpha()]))
     return found
@@ -281,50 +234,12 @@ def numbers_out_of_context(claim: str, page_text: str) -> list[str]:
     return out
 
 
-def _best_passage(claim_words: list[str], page_words: list[str], size: int) -> tuple[float, int, int]:
-    """(share, start, end): the stretch of the page, no longer than the claim
-    plus a quarter, that holds the most of the claim's n-grams, and the share
-    of them it holds. A quotation sits in one place; n-grams gathered from all
-    over a page are a claim stitched together from its vocabulary."""
-    wanted = _ngrams(claim_words, size)
-    hits = [(i, gram) for i in range(len(page_words) - size + 1)
-            if (gram := tuple(page_words[i:i + size])) in wanted]
-    if not hits:
-        return 0.0, 0, 0
-    reach = len(claim_words) + max(4, len(claim_words) // 4)
-    best, inside, lo = (0, 0, 0), {}, 0
-    for pos, gram in hits:
-        inside[gram] = inside.get(gram, 0) + 1
-        while pos + size - hits[lo][0] > reach:
-            inside[hits[lo][1]] -= 1
-            if not inside[hits[lo][1]]:
-                del inside[hits[lo][1]]
-            lo += 1
-        if len(inside) > best[0]:
-            best = (len(inside), hits[lo][0], pos + size)
-    return best[0] / len(wanted), best[1], best[2]
-
-
-def names_away_from_quote(claim: str, page_text: str) -> list[str]:
-    """Capitalized names in the claim that are on the page, but not in or just
-    around the passage the claim quotes: "Alice Chen was fired for fraud" on a
-    page where Alice Chen was hired and someone else was fired for fraud.
-    Heuristic, like numbers_out_of_context: it can only ask for a human."""
-    claim_words, page_words = _words(claim), _words(page_text)
-    share3, lo3, hi3 = _best_passage(claim_words, page_words, 3)
-    share2, lo2, hi2 = _best_passage(claim_words, page_words, 2)
-    lo, hi = (lo3, hi3) if share3 >= 0.8 * share2 else (lo2, hi2)
-    margin = max(4, len(claim_words) // 2)
-    nearby = set(page_words[max(0, lo - margin):hi + margin])
-    return [n for n in _names(claim) if n.lower() not in nearby and n.lower().removesuffix("'s") not in nearby]
-
-
 def claim_signals(claim: str, page_text: str) -> tuple[float, float]:
     """Return (quoted, topical), each 0-1, measuring how much of `claim` is
     present in `page_text`.
 
     `quoted` is n-gram containment — the fraction of the claim's word
-    sequences found in one passage of the page. High only for real quotation.
+    sequences found on the page. High only for real quotation.
     `topical` is the fraction of the claim's distinctive (non-stopword)
     terms found on the page. Survives rewording, but proves only that the
     claim talks about what the page talks about.
@@ -335,9 +250,15 @@ def claim_signals(claim: str, page_text: str) -> tuple[float, float]:
     if not claim_words or not page_words:
         return 0.0, 0.0
 
+    def containment(size: int) -> float:
+        wanted = _ngrams(claim_words, size)
+        if not wanted:
+            return 0.0
+        return len(wanted & _ngrams(page_words, size)) / len(wanted)
+
     # Trigrams are the cleanest quotation proof; bigrams are discounted because
     # they collide by chance far more often on a large page.
-    quoted = max(_best_passage(claim_words, page_words, 3)[0], 0.8 * _best_passage(claim_words, page_words, 2)[0])
+    quoted = max(containment(3), 0.8 * containment(2))
 
     distinctive = {w for w in claim_words if len(w) > 3 and w not in _STOPWORDS}
     topical = len(distinctive & set(page_words)) / len(distinctive) if distinctive else 0.0
@@ -364,12 +285,6 @@ def tier_for_claim(claim: str, page_text: str) -> tuple[str, str, float, float]:
             return (TIER_LOW_MATCH,
                     "Claim's numbers are on the page but not next to the claim's words: "
                     + ", ".join(stray) + "; needs human review",
-                    quoted, topical)
-        apart = names_away_from_quote(claim, page_text)
-        if apart:
-            return (TIER_LOW_MATCH,
-                    "Claim's names are on the page but not next to the passage it quotes: "
-                    + ", ".join(apart) + "; needs human review",
                     quoted, topical)
         return TIER_VERIFIED, "", quoted, topical
     if topical >= SUPPORTED_THRESHOLD:

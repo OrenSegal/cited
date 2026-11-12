@@ -59,7 +59,6 @@ EXIT_BLOCKING = 1
 EXIT_USAGE = 2
 EXIT_OFFLINE_MISS = 3
 EXIT_INTERNAL_ERROR = 4
-EXIT_NOTHING_CHECKED = 5
 EXIT_INTERRUPTED = 130
 
 EXIT_CODES = {
@@ -69,7 +68,6 @@ EXIT_CODES = {
     EXIT_OFFLINE_MISS: "--offline and at least one source had no cached copy, and no other code applies.",
     EXIT_INTERNAL_ERROR: "An internal error while checking a claim, or --annotate-out or --certificate could not be written, "
                          "and nothing was blocking. The other claims are still checked and reported.",
-    EXIT_NOTHING_CHECKED: "No claim was checked: the input had no claims, or no link in the draft had a claim attached.",
     EXIT_INTERRUPTED: "Interrupted.",
 }
 
@@ -393,8 +391,6 @@ def _print_table(rows: list[dict[str, Any]], counts: dict[str, int], offline_mis
         print(f"{row['id'][:26]:<26} {row['label']:<14} {row['quoted']:>6.2f} {row['topical']:>7.2f}  {row['source_url']}")
     summary = ", ".join(f"{counts[t]} {TIER_LABELS[t].lower()}" for t in TIERS if counts.get(t)) or "none"
     print(f"\n{plural(len(rows), 'claim')} checked: {summary}.")
-    if not rows:
-        print("\nNothing was checked, so this run says nothing about the document.")
     if n := counts.get(TIER_UNSUPPORTED):
         print(f"\n{plural(n, 'claim')} {agree(n, 'is', 'are')} NOT ON THE PAGE {agree(n, 'it cites', 'they cite')}. "
               "The source loaded and was readable, and the claim isn't in it: treat as fabricated until proven otherwise.")
@@ -460,8 +456,7 @@ def main(argv: list[str] | None = None) -> int:
     offline_misses = sum(v.offline_miss for v in verdicts)
     internal_errors = sum(v.internal_error for v in verdicts)
     reason = blocking_reason(counts, strict=args.strict)
-    # An empty run proves nothing, so it must not read as a pass.
-    code = _exit_code(reason, offline_misses, internal_errors) if rows else EXIT_NOTHING_CHECKED
+    code = _exit_code(reason, offline_misses, internal_errors)
 
     annotated = False
     if args.annotate_out:

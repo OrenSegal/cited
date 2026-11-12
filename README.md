@@ -4,7 +4,7 @@
 
 cited re-fetches every page a claim cites and flags claims whose words, numbers or names are not on it. It is for anyone shipping LLM answers with citations, as a Claude Code plugin or a standard-library Python 3.10+ command; part of [sous](https://github.com/OrenSegal/sous).
 
-On 29 hand-labelled claims about one page, it flags 11 of the 15 that are not on it and 6 of the 14 that are: recall 0.73, 95% bootstrap CI 0.50-0.94. Only 7 of the 15 come back `unsupported`; the other 4 land in `low_match`, the same tier as the 6 supported claims. A baseline that flags every claim that is not a verbatim substring of the page catches all 15 and flags 7 of the 14, so on this set its recall is higher than cited's at about the same precision ([Results](#results)). It checks containment, not truth.
+On 29 hand-labelled claims about one page, it flags 10 of the 15 that are not on it: recall 0.67, 95% bootstrap CI 0.41-0.90 ([Results](#results)). It checks containment, not truth.
 
 Try it from a fresh clone (fetches six live pages; exit 1 means some claims did not check out, as two should here):
 
@@ -47,7 +47,7 @@ Asking the model that wrote a claim how sure it is does not catch a claim it mad
 
 - **Made-up funding round.** "Acme Robotics raised a $12M Series A led by Sequoia", checked against a page that only names the company, scores `unsupported`, as does a quoted claim with the wrong number (`$12M` for `$15M`) or the wrong scale (`$40 billion` for `$40 million`). Pinned in `tests/test_tiering_core.py` ([cited#1](https://github.com/OrenSegal/cited/pull/1)).
 - **Offline research-note eval.** `evals/catch-fabricated-citation` hands an agent a note with five claims about RFC 2606 and recorded copies of the pages. Expected: two quotes verified, the wrong year (2001 for 1999) not on the page, the paraphrase sent to a person, the citation of a nonexistent RFC reported as broken.
-- **Labelled benchmark.** `python3 bench/run.py` (offline, no keys) scores cited on 29 hand-labelled claims about the recorded RFC 2606 page: 15 that are not on it, 14 that are. It flags 11 of the 15 (recall 0.73) and also flags 6 of the 14 supported ones (all `low_match`: paraphrases sent to a person). The four misses are a number written as a word (`six` for `four`) and three swapped lowercase words (`demo` for `example`, `valid` for `invalid`, `rejected` for `agreed`). Precision of the flags is 0.65 (11 of 17). With n = 29, the 95% bootstrap intervals over claims are wide: recall 0.50-0.94, precision 0.41-0.88 (`bench/run.py` prints both; 2000 resamples, seed 0). The claims and their labels were written in one commit (3a407b3) by the tool's author, with Claude as co-author; there is no second labeller. That is the precision/recall trade-off in the thresholds: the current bar sends 6 of the 14 supported claims to a person and still passes all 4 misses as `verified`. Requiring a quote to sit in one passage of the page moved one absent claim and one supported claim from `verified` to `low_match` (before that rule: 10 of 15 and 5 of 14). A stricter bar could catch some swaps at the cost of more real quotes sent to a person; that has not been measured. Read by tier: `unsupported` holds 7 absent claims and no supported ones (recall 0.47, interval 0.20-0.73); `low_match` holds 4 absent and 6 supported; `verified` holds 4 absent and 8 supported. Against two baselines on the same claims: flagging everything has recall 1.00 and precision 0.52; flagging every claim that is not a verbatim substring of the page (case, punctuation and whitespace ignored) has recall 1.00, flags 7 of the 14 supported claims and has precision 0.68. cited has recall 0.73, flags 6 of 14, precision 0.65. So on this set the verbatim baseline catches more and costs one more supported claim sent to a person; what cited adds over it is the split between `unsupported` and `low_match`, and one paraphrase passed. `bench/run.py` prints all of this. One page, one labeller, 29 claims: a regression check and a picture of the lexical approach, not an accuracy estimate for the web.
+- **Labelled benchmark.** `python3 bench/run.py` (offline, no keys) scores cited on 29 hand-labelled claims about the recorded RFC 2606 page: 15 that are not on it, 14 that are. It flags 10 of the 15 (recall 0.67) and also flags 5 of the 14 supported ones (all `low_match`: paraphrases sent to a person). The five misses are a number written as a word (`six` for `four`) and four swapped lowercase words or phrases (`demo` for `example`, `valid` for `invalid`, `rejected` for `agreed`, `production DNS servers` for testing of DNS code). Precision of the flags is also 0.67 (10 of 15). With n = 29, the 95% bootstrap intervals over claims are wide: recall 0.41-0.90, precision 0.42-0.91 (`bench/run.py` prints both; 2000 resamples, seed 0). The claims and their labels were written in one commit (3a407b3) by the tool's author, with Claude as co-author; there is no second labeller. That is the precision/recall trade-off in the thresholds: the current bar sends 5 of the 14 supported claims to a person and still passes all 5 misses as `verified`. A stricter bar could catch some swaps at the cost of more real quotes sent to a person; that has not been measured. One page, one labeller, 29 claims: a regression check and a picture of the lexical approach, not an accuracy estimate for the web.
 - **Where it falls short.** The same RFC page let a swapped lowercase word pass as `verified`; see [Limitations](#limitations).
 
 ## Install
@@ -92,7 +92,7 @@ Input is a JSON array. `claim` and `source_url` are required; `id` (string or in
 
 ### From a markdown draft
 
-Point cited at a `.md`, `.markdown` or `.mdx` file and it finds every inline link, works out which claim each link is being asked to support, and checks those pairs the same way. Numbered markers (`[1]` with a numbered entry under a Sources heading), footnotes (`[^1]` with a `[^1]: url` note) and reference-style links (`[text][ref]`) are resolved to their URLs first.
+Point cited at a `.md`, `.markdown` or `.mdx` file and it finds every inline link, works out which claim each link is being asked to support, and checks those pairs the same way.
 
 ```bash
 cited draft.md                              # check every sourced claim in the draft
@@ -113,7 +113,7 @@ An invalid file is rejected before anything is fetched, with every problem liste
 | `unsupported` | Not on page | The page loaded and is readable, and the claim, or one of its numbers or names, is not on it. The fabrication signal. | yes | yes |
 | `broken` | Broken source | The URL is invalid, refused (see Security), or unreachable, and no archived copy helped. | yes | yes |
 | `unverified` | Unverified | Never checked: the page is a PDF or binary, too thin to read (a JavaScript app, a consent wall), too large to read in full and the claim was not in the part read, or missing from an `--offline` cache. | no | yes |
-| `snippet_only` | Snippet-only | The site blocks scripted fetches and no archived copy exists: HTTP 429 from any site, or HTTP 403 or a bot challenge page from a site on the built-in list (reddit.com, x.com, twitter.com, linkedin.com, glassdoor.com, indeed.com). A 403 from any other site is `broken`. | no | yes |
+| `snippet_only` | Snippet-only | The site blocks scripted fetches (HTTP 403/429, or a bot challenge page) and no archived copy exists. | no | yes |
 
 ## Exit codes
 
@@ -124,7 +124,6 @@ An invalid file is rejected before anything is fetched, with every problem liste
 | 2 | Usage error or invalid claims file. Nothing was fetched. |
 | 3 | `--offline` and at least one source had no cached copy, and no other code applies. |
 | 4 | An internal error while checking a claim, or `--annotate-out` or `--certificate` could not be written, and nothing was blocking. The other claims are still checked and reported. |
-| 5 | No claim was checked: the input had no claims, or no link in the draft had a claim attached. |
 | 130 | Interrupted. |
 
 ## Options
@@ -231,12 +230,11 @@ cited fetches URLs an agent wrote, so it treats them as hostile. Only `http` and
 
 ## Limitations
 
-- **The accuracy numbers are thin.** The benchmark is 29 claims about one page, written and labelled by the tool's author, so recall 0.73 has a 95% interval of 0.50-0.94, is below a verbatim-substring baseline on the same claims, and says nothing about other sites, languages or claim styles. The 15 unsupported claims are of two kinds the author chose: edits of the page's own sentences (a swapped word, number or name) and invented facts about the RFC. Dead links, bot walls and invented URLs are covered by tests, not by this benchmark.
+- **The accuracy numbers are thin.** The benchmark is 29 claims about one page, written and labelled by the tool's author, so recall 0.67 has a 95% interval of 0.41-0.90 and says nothing about other sites, languages or claim styles. The 15 unsupported claims are of two kinds the author chose: edits of the page's own sentences (a swapped word, number or name) and invented facts about the RFC. Dead links, bot walls and invented URLs are covered by tests, not by this benchmark.
 - **Matching is lexical.** It compares words and word sequences. It cannot tell whether a reworded claim means the same as the page, or whether a quoted line means what your artifact says.
 - **Substituted lowercase words pass.** Only numbers, capitalized words and one-letter identifiers are checked as specifics. `"The .demo TLD is recommended for use in documentation"` checked against RFC 2606 (which says `.example`) came back `verified`, because every other word is quoted.
 - **Numbers written as words are not checked.** `"reserves seven top level domain names"` against a page that says "four" came back `low_match`, not `unsupported`. It still blocks, but for the wrong reason.
 - **Dates are not normalised.** Abbreviated month names and other date formats are not matched to each other. `"published in October 2023"` against a page that says "Oct. 2, 2023" came back `unsupported` (Not on page), because `October` is checked as a name the page does not use.
-- **Word order inside a passage is not checked.** `"Globex acquired Initech for $5 billion"` against a page that says Initech acquired Globex came back `verified`: the same names and nearly the same word sequences are in the same sentence. A name that is on the page but not near the quoted passage does send the claim to `low_match`.
 - **Negation and qualifiers are invisible.** "did not raise" and "raised" share most of their words.
 - **Numbers are checked against nearby words, and only roughly.** A number in a quoted claim must sit within a few words of a word the claim puts next to it, in the same sentence. `"founded in 2022"` on a page that says 2019 and mentions 2022 elsewhere comes back `low_match`, and so do swapped percentages. It is a heuristic, so it asks for a person and never says `unsupported`: a real claim that moves a number far from its words also lands in `low_match`, and a wrong number that happens to sit near one of the claim's words still passes.
 - **English-centric.** The capitalized-name heuristic skips the claim's first word (so an invented name there passes) and ordinary openers such as "Moreover" in later sentences, misses lowercase brand names, and can flag an ordinary capitalized word the page does not use.

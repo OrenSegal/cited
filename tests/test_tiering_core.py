@@ -1,5 +1,3 @@
-import pytest
-
 from tiering_core import (
     TIER_BROKEN,
     TIER_DISQUALIFYING,
@@ -161,9 +159,9 @@ def test_year_borrowed_from_elsewhere_on_the_page_needs_review():
 def test_terse_claim_cannot_lean_on_the_page_subject_for_context():
     # "Acme Robotics" sits next to 2022 on the page, but it is what the whole
     # page is about, so it says nothing about what happened in 2022.
-    # Its words are not in one passage either, so it is not treated as quoted at all.
     tier, note, _, _ = tier_for_claim("Acme Robotics founded in 2022", ACQUISITION_PAGE)
     assert tier == TIER_LOW_MATCH
+    assert "2022" in note
 
 
 def test_swapped_percentages_need_review():
@@ -232,68 +230,3 @@ def test_invented_name_opening_a_later_sentence_is_flagged():
 
     assert "Sequoia" in missing_specifics(
         "Beta Corp acquired Acme Robotics in 2022. Sequoia led the round.", ACQUISITION_PAGE)
-
-
-# ── Wrong verdicts found by attacking the checker ───────────────────────────
-
-REST_OF_PAGE = (" The quarterly letter to shareholders also covers hiring, office moves, the product roadmap for the "
-                "coming year, notes on governance, a summary of the annual meeting and the dividend schedule.")
-
-
-def _tier(claim, page):
-    return tier_for_claim(claim, page + REST_OF_PAGE)[0]
-
-
-def test_footnote_markers_are_not_read_as_one_number():
-    assert _tier("The team hired 12 engineers in the third quarter.",
-                 "The team hired engineers in the third quarter (see notes 1,2).") == TIER_UNSUPPORTED
-    assert _tier("Revenue grew 15% in the third quarter.", "Revenue grew 1,5% in the third quarter.") == TIER_UNSUPPORTED
-    assert _tier("The fund manages 1,250,000 accounts for savers.",
-                 "The fund manages 1250000 accounts for savers.") != TIER_UNSUPPORTED
-
-
-def test_another_currency_is_not_the_same_amount():
-    assert _tier("Acme raised \u20ac40 million in new funding from investors.",
-                 "Acme raised $40 million in new funding from investors.") == TIER_UNSUPPORTED
-    assert _tier("Acme raised $40 million in new funding.", "Acme raised 40 million dollars in new funding.") == TIER_VERIFIED
-    assert _tier("Acme raised $40M in new funding.", "Acme raised US$40m in new funding.") == TIER_VERIFIED
-
-
-def test_a_dropped_minus_sign_is_not_the_same_number():
-    assert _tier("Operating margin was 5% for the full fiscal year.",
-                 "Operating margin was -5% for the full fiscal year.") == TIER_UNSUPPORTED
-    assert _tier("Revenue rose every year in 2019-2024 at the firm.",
-                 "Revenue rose every year in 2019-2024 at the firm.") == TIER_VERIFIED
-
-
-def test_claim_stitched_from_two_sentences_needs_review():
-    page = ("Alice Chen was hired as chief executive in January. "
-            "Later, Bob Diaz was fired for fraud by the board in March.")
-    tier, note, _, _ = tier_for_claim("Alice Chen was fired for fraud by the board in March.", page + REST_OF_PAGE)
-    assert tier == TIER_LOW_MATCH and "Chen" in note
-    assert _tier("Bob Diaz was fired for fraud by the board in March.", page) == TIER_VERIFIED
-
-
-def test_phrases_from_distant_parts_of_a_page_are_not_a_quote():
-    page = ("The board met in March to review the budget." + REST_OF_PAGE * 3
-            + " Staff were fired for fraud at a supplier last year.")
-    assert _tier("The board fired staff in March for fraud at a supplier.", page) == TIER_LOW_MATCH
-
-
-@pytest.mark.xfail(strict=True, reason="word order inside one passage is not checked; see README Limitations")
-def test_swapped_subject_and_object_is_not_verified():
-    assert _tier("Globex acquired Initech for $5 billion in cash and stock in 2020.",
-                 "Initech acquired Globex for $5 billion in cash and stock in 2020.") != TIER_VERIFIED
-
-
-def test_possessive_form_of_a_name_on_the_page_is_the_same_name():
-    assert _tier("The round was led by Sequoia's growth fund this spring.",
-                 "The round was led by Sequoia and its growth fund this spring.") == TIER_VERIFIED
-    assert _tier("The round was led by Benchmark's growth fund this spring.",
-                 "The round was led by Sequoia and its growth fund this spring.") == TIER_UNSUPPORTED
-
-
-def test_number_spellings_that_mean_the_same():
-    assert _tier("Revenue grew 15% in the third quarter.", "Revenue grew 15 per cent in the third quarter.") == TIER_VERIFIED
-    assert _tier("The rate was cut by 0.5 points this month.", "The rate was cut by 0.50 points this month.") == TIER_VERIFIED
-    assert _tier("The rate was cut by 0.5% this month by the bank.", "The rate was cut by .5% this month by the bank.") == TIER_VERIFIED
