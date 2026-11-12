@@ -17,6 +17,10 @@
 
 ### Fixed
 
+- `hosted/`: deleting a certificate left its saved re-check (`certs/{id}.recheck.json`) and, when a visit was mid-batch, that batch's results, both holding the claims. The spent-code marker stored the certificate id. All three are fixed; the deleted page no longer says nothing is kept, since the marker and empty lease files are.
+- `hosted/`: rate-limit keys were a bare SHA-256 of the client address. They are now an HMAC keyed from the storage service key (random per process without one).
+- `hosted/`: the landing page priced the certificate at $9 while certificates were switched off.
+
 - Removed a duplicated `Fixed` block under 0.5.0.
 
 ## 0.5.0

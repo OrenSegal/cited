@@ -364,6 +364,40 @@ def test_owner_can_delete_with_the_secret_link_only(tmp_path, server):
     assert app.handle("POST", f"/c/{cert_id}/delete", f"key={key}".encode(), FORM).status == 410
 
 
+def _stored(tmp_path) -> dict[str, bytes]:
+    return {str(p.relative_to(tmp_path / "data")): p.read_bytes() for p in (tmp_path / "data").rglob("*") if p.is_file()}
+
+
+def test_delete_removes_the_recheck_and_nothing_left_names_the_certificate(tmp_path, server):
+    app = _app(tmp_path, LOCAL)
+    cert_id, key = _start(app, _cert_draft(server))
+    _finish(app, cert_id)
+    app.storage.put(f"certs/{cert_id}.recheck.json", app.storage.get(f"certs/{cert_id}.json"), "application/json")  # recheck.py --save
+
+    assert app.handle("POST", f"/c/{cert_id}/delete", f"key={key}".encode(), FORM).status == 200
+
+    left = _stored(tmp_path)
+    assert not [k for k in left if k.endswith(".json")], sorted(left)
+    assert not [k for k, body in left.items() if cert_id.encode() in body or b"Example Corporation" in body], sorted(left)
+    assert app.handle("POST", "/check", urllib.parse.urlencode(
+        {"markdown": _cert_draft(server), "mode": "certificate", "code": "good-code"}).encode(), FORM).status == 409, "code stays spent"
+
+
+def test_delete_while_a_batch_is_being_fetched_leaves_no_results(tmp_path, server, monkeypatch):
+    app = _app(tmp_path, LOCAL)
+    cert_id, key = _start(app, _cert_draft(server))
+    real = webapp.check_entries
+
+    def delete_mid_batch(*args, **kwargs):
+        rows = real(*args, **kwargs)
+        assert app.handle("POST", f"/c/{cert_id}/delete", f"key={key}".encode(), FORM).status == 200
+        return rows
+
+    monkeypatch.setattr(webapp, "check_entries", delete_mid_batch)
+    assert app.handle("GET", f"/c/{cert_id}").status == 410
+    assert not [k for k, body in _stored(tmp_path).items() if b"Example Corporation" in body]
+
+
 def test_delete_during_a_running_job_stops_it(tmp_path, server):
     app = _app(tmp_path, LOCAL)
     cert_id, key = _start(app, _cert_draft(server))
@@ -394,6 +428,16 @@ def test_rate_limit_is_shared_through_storage(tmp_path):
     a = webapp.RateLimiter(store, 3, 600, clock=lambda: 5.0)
     b = webapp.RateLimiter(store, 3, 600, clock=lambda: 5.0)  # a second function instance
     assert [a.allow("ip"), b.allow("ip"), a.allow("ip"), b.allow("ip")] == [True, True, True, False]
+
+
+def test_stored_rate_limit_keys_are_keyed_not_bare_hashes(tmp_path):
+    store = st.LocalStorage(tmp_path / "data")
+    full = webapp.RateLimiter(store, 1, 600, clock=lambda: 5.0)
+    assert full.allow("203.0.113.9") and not full.allow("203.0.113.9")
+    key = next(p for p in (tmp_path / "data" / "ratelimit").rglob("*") if p.is_file()).parent.name
+    assert key != webapp._sha("cited-rl:203.0.113.9")[:32], "a bare hash of an address is reversed by trying them all"
+    other = webapp.RateLimiter(store, 1, 600, clock=lambda: 5.0, secret=b"another deployment")
+    assert other.allow("203.0.113.9"), "a different secret gives different keys"
 
 
 def test_rate_limit_without_storage_counts_in_memory():
@@ -736,3 +780,12 @@ def test_certificate_ids_never_start_with_a_dash(monkeypatch):
     ids = iter(["-dashfirst123456", "_underfirst12345", "ok0123456789abcd"])
     monkeypatch.setattr(webapp.secrets, "token_urlsafe", lambda n: next(ids))
     assert webapp._new_cert_id() == "ok0123456789abcd"
+
+
+def test_no_price_is_shown_while_certificates_are_off(tmp_path):
+    def landing(**kwargs):
+        return _text(webapp.App(storage=st.LocalStorage(tmp_path / "data"), **kwargs).handle("GET", "/"))
+
+    assert "$9" not in landing() and "Not on sale yet" in landing()
+    assert "$9" not in landing(demo_max_claims=6) and "Free demo" in landing(demo_max_claims=6)
+    assert "$9" in landing(access_codes=frozenset({"a-code"}))

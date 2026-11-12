@@ -223,15 +223,20 @@ def link_status(url: str, result: FetchResult) -> tuple[str, str]:
     return "ok", f"HTTP {result.status}"
 
 
+_PROCESS_SECRET = secrets.token_bytes(32)
+
+
 class RateLimiter:
     """Fixed-window limit per client address. With storage, each request
     claims one numbered slot key with `create` (first writer wins), so the
     count is shared by every function instance. Without storage it counts in
-    this process only. Addresses are stored hashed."""
+    this process only. Addresses are stored as an HMAC under `secret`: a bare
+    hash of an IPv4 address is reversed by trying all of them. Instances
+    share a count only if they share the secret."""
 
     def __init__(self, storage: Storage | None, limit: int, window: int,
-                 clock: Callable[[], float] = time.time) -> None:
-        self.storage, self.limit, self.window, self.clock = storage, limit, window, clock
+                 clock: Callable[[], float] = time.time, secret: bytes = _PROCESS_SECRET) -> None:
+        self.storage, self.limit, self.window, self.clock, self.secret = storage, limit, window, clock, secret
         self._next: dict[tuple[str, int], int] = {}  # first slot worth trying, per (client, window)
         self._lock = threading.Lock()
 
@@ -239,7 +244,7 @@ class RateLimiter:
         if not client or self.limit <= 0:
             return True
         bucket = int(self.clock() // self.window)
-        who = _sha(f"cited-rl:{client}")[:32]
+        who = hmac.new(self.secret, client.encode(), hashlib.sha256).hexdigest()[:32]
         with self._lock:
             for key in [k for k in self._next if k[1] < bucket]:
                 del self._next[key]
@@ -301,7 +306,7 @@ class App:
                  payment_link: str = "", demo_max_claims: int = 0, timeout: float = FETCH_TIMEOUT,
                  job_timeout: float = JOB_TIMEOUT, per_host_delay: float = 0.25, use_wayback: bool = True,
                  poll_budget: float = POLL_BUDGET, worst_batch: float = JOB_WORST_BATCH,
-                 rate_limit: tuple[int, int] = RATE_LIMIT, stripe_secret: str = "",
+                 rate_limit: tuple[int, int] = RATE_LIMIT, rate_secret: bytes = _PROCESS_SECRET, stripe_secret: str = "",
                  clock: Callable[[], float] = time.time, monotonic: Callable[[], float] = time.monotonic) -> None:
         self.storage = storage
         self.storage_error = storage_error
@@ -315,7 +320,7 @@ class App:
         self.use_wayback = use_wayback
         self.poll_budget = poll_budget
         self.worst_batch = worst_batch
-        self.limiter = RateLimiter(storage, *rate_limit, clock=clock)
+        self.limiter = RateLimiter(storage, *rate_limit, clock=clock, secret=rate_secret)
         self.stripe_secret = stripe_secret
         self.clock = clock
         self.monotonic = monotonic
@@ -333,7 +338,10 @@ class App:
         if env.get("CITED_RATE_LIMIT", "").strip():
             count, _, window = env["CITED_RATE_LIMIT"].partition("/")
             limit = (int(count), int(window or RATE_LIMIT[1]))
+        # Function instances must agree on the key to share a count; the storage key is the one secret they all hold.
+        shared = env.get("SUPABASE_SERVICE_KEY", "").strip().encode()
         return cls(storage=storage, storage_error=error, access_codes=codes, rate_limit=limit,
+                   rate_secret=hmac.new(shared, b"cited-rate-limit", hashlib.sha256).digest() if shared else _PROCESS_SECRET,
                    payment_link=env.get("CITED_PAYMENT_LINK", "").strip(),
                    demo_max_claims=int(env.get("CITED_DEMO_MAX_CLAIMS", "").strip() or 0),
                    stripe_secret=env.get("STRIPE_WEBHOOK_SECRET", "").strip())
@@ -412,7 +420,7 @@ sources are dead, and which claims are not on the page they cite.</p>
       <b>Link check <span class="price">Free</span></b>
       <span>Which sources are dead, moved, or blocking readers. First {FREE_LINK_CAP} links, nothing stored.</span></label>
     <label class="mode"><input type="radio" name="mode" value="certificate">
-      <b>Certificate <span class="price">$9</span></b>
+      <b>Certificate <span class="price">{self._price()}</span></b>
       <span>Every claim checked against its page, on a page you can share. You can delete it any time.</span></label>
   </fieldset>
   <div class="code">
@@ -442,11 +450,13 @@ It does not show the page is right.</p>""", head='<meta name="description" conte
         if not CERT_ID.fullmatch(cert_id):
             return _page("Not found", NO_CERT, 404)
         data, meta, deleted = self._cert_status(cert_id)
+        if data is None and meta is not None and not deleted:
+            done, total = self.advance(cert_id, meta)
+            deleted = self.storage is not None and self.storage.get(f"certs/{cert_id}.deleted") is not None
         if deleted:
             return _page("Deleted", "<h1>This certificate was deleted</h1>"
-                         '<p class="lede">Its owner removed it. Nothing about it is kept.</p>', 410)
+                         '<p class="lede">Its owner removed it. Its claims and results are no longer stored.</p>', 410)
         if data is None and meta is not None:
-            done, total = self.advance(cert_id, meta)
             if done < total:
                 return self.progress_page(meta, done, total)
             data = self.storage.get(f"certs/{cert_id}.html") if self.storage else None
@@ -565,6 +575,14 @@ own words, numbers and names are on the page it cites, and gives you a page to s
             matched = self.storage.get(f"minted/{_sha(code)}") is not None
         return matched
 
+    def _on_sale(self) -> bool:
+        return bool(self.access_codes or self.stripe_secret)
+
+    def _price(self) -> str:
+        if self._on_sale():
+            return "$9"
+        return "Free demo" if self.demo_max_claims else "Not on sale yet"
+
     def _buy_hint(self) -> str:
         hints = []
         if self.payment_link:
@@ -586,7 +604,7 @@ Your draft is not stored, so paste it again when you have the code.</p>
     def start_certificate(self, name: str, markdown: str, code: str, base_url: str = "") -> Response:
         demo = not code and self.demo_max_claims > 0  # no code + demo lane on: a capped, labelled demo
         if not demo:
-            if not self.access_codes and not self.stripe_secret:
+            if not self._on_sale():
                 raise UserError("Certificates are not on sale yet.", 503)
             if not code:
                 return self._payment_page(code)
@@ -617,7 +635,8 @@ Your draft is not stored, so paste it again when you have the code.</p>
         storage.put(f"jobs/{cert_id}.json", json.dumps(meta, ensure_ascii=False).encode("utf-8"), "application/json")
         if not demo:
             try:
-                claimed = storage.create(f"codes/{_sha(code)}", cert_id.encode())
+                # The marker only says the code is spent. It must outlive the certificate, so it does not name it.
+                claimed = storage.create(f"codes/{_sha(code)}", b"")
             except StorageError:
                 self._drop_orphan_job(cert_id)
                 raise
@@ -675,6 +694,10 @@ Anyone with it can delete the certificate.</p>
                 row["index"] = n * size + offset
             storage.put(f"jobs/{cert_id}/b{n}.json", json.dumps(rows, ensure_ascii=False).encode("utf-8"),
                         "application/json")
+            if storage.get(f"certs/{cert_id}.deleted") is not None:
+                # Deleted while this batch was being fetched: delete() could not remove a file not yet written.
+                storage.delete(f"jobs/{cert_id}/b{n}.json")
+                return 0, total
             results[n] = rows
             ran += 1
         if len(results) == total:
@@ -723,7 +746,7 @@ This cannot be undone.</p>
 <a href="/c/{cert_id}">Keep it</a></div></form>""", head='<meta name="robots" content="noindex">')
         storage.put(f"certs/{cert_id}.deleted", b"", "text/plain")
         total = max(1, math.ceil(len(meta["entries"]) / meta.get("batch_size", BATCH_SIZE)))
-        for item in [f"certs/{cert_id}.html", f"certs/{cert_id}.json",
+        for item in [f"certs/{cert_id}.html", f"certs/{cert_id}.json", f"certs/{cert_id}.recheck.json",
                      *(f"jobs/{cert_id}/b{n}.json" for n in range(total)), f"jobs/{cert_id}.json"]:
             storage.delete(item)
         return _page("Deleted", '<h1>Deleted</h1><p class="lede">The certificate and its results are gone. '
