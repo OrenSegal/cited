@@ -17,6 +17,10 @@
 
 ### Fixed
 
+- `--timeout` did not bound a request: a server sending its headers one byte at a time held a fetch open for as long as it kept sending (22 s measured with `--timeout 1`). A timer now shuts the request's sockets down at the timeout.
+- A page declaring `charset=undefined` or `charset=idna`, in its Content-Type or a `<meta>` tag, raised `UnicodeError` out of `fetch_page`; in the hosted app one such link turned a link check into a 500. Those codecs now fall through like an unknown charset.
+- With `--proxy-from-env`, a percent-escaped host (`https://%31%32%37.0.0.1/`) passed the address check and was sent to the proxy as `CONNECT 127.0.0.1:443`. Hosts containing `%` are refused in every mode.
+
 - Removed a duplicated `Fixed` block under 0.5.0.
 
 ## 0.5.0

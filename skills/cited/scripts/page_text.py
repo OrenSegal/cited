@@ -51,7 +51,8 @@ def _text_codec(name: str | None) -> str | None:
 
 def decode_body(body: bytes, header_charset: str | None) -> str:
     """Decode with BOM > Content-Type charset > <meta charset> > UTF-8 >
-    windows-1252. Unknown or non-text codec names are skipped, never fatal."""
+    windows-1252. Unknown or non-text codec names, and codecs that refuse to
+    decode ("undefined", "idna"), are skipped, never fatal."""
     for bom, codec in _BOMS:
         if body.startswith(bom):
             return body.decode(codec, errors="replace")
@@ -59,7 +60,10 @@ def decode_body(body: bytes, header_charset: str | None) -> str:
     for candidate in (header_charset, meta.group(1).decode("ascii", "ignore") if meta else None):
         codec = _text_codec(candidate)
         if codec:
-            return body.decode(codec, errors="replace")
+            try:
+                return body.decode(codec, errors="replace")
+            except (UnicodeError, LookupError):
+                continue
     try:
         return body.decode("utf-8")
     except UnicodeDecodeError:

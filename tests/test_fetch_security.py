@@ -209,6 +209,35 @@ def test_slow_drip_response_is_cut_off_by_the_total_timeout(server):
     assert time.monotonic() - started < 4.0
 
 
+def test_trickled_headers_are_cut_off_by_the_total_timeout(server):
+    # One header byte at a time never trips the per-read socket timeout.
+    def trickle(handler):
+        try:
+            for byte in b"HTTP/1.0 200 OK\r\nContent-Type: text/html\r\nX-Pad: " + b"y" * 60 + b"\r\n\r\n<p>late</p>":
+                handler.wfile.write(bytes([byte]))
+                handler.wfile.flush()
+                time.sleep(0.2)
+        except OSError:
+            pass
+
+    server.add("/trickle", body=trickle)
+    started = time.monotonic()
+    result = safe_fetch.fetch_page(server.url("/trickle"), 1, _local_policy())
+    assert time.monotonic() - started < 3.0
+    assert result.status is None and result.transient and "timed out" in result.error
+
+
+@pytest.mark.parametrize("headers, head", [
+    ({"Content-Type": "text/html; charset=undefined"}, ""),
+    ({"Content-Type": "text/html; charset=idna"}, ""),
+    ({"Content-Type": "text/html"}, "<meta charset='undefined'>"),
+])
+def test_codec_that_refuses_to_decode_falls_back_instead_of_raising(server, headers, head):
+    server.add("/cs", body=head + "<p>" + "hello world " * 40 + "</p>", headers=headers)
+    result = safe_fetch.fetch_page(server.url("/cs"), 3, _local_policy())
+    assert result.status == 200 and "hello world" in result.text
+
+
 def test_deeply_nested_json_ld_does_not_crash_extraction():
     html = '<script type="application/ld+json">' + "[" * 50_000 + "]" * 50_000 + "</script><p>ok</p>"
     parser = _TextExtractor()
@@ -270,3 +299,55 @@ def test_proxy_mode_does_not_ask_the_server_to_close(server, monkeypatch):
     assert seen == ["keep-alive"]
     assert not result.error, result.error
     assert result.text.count("four domain names are reserved") == 200
+
+
+# ── First-line checks, each on its own ──────────────────────────────────────
+# The connect-time address check backs most of these up, so a test that only
+# asks "was the server contacted" passes with the check deleted.
+
+@pytest.mark.parametrize("host", ["2130706433", "0x7f000001", "0177.0.0.1", "127.1"])
+def test_non_canonical_numeric_hosts_are_refused_without_a_lookup(host):
+    with fake_dns({host: "93.184.215.14"}):  # even if a resolver called it public
+        assert "non-canonical" in safe_fetch.url_problem(f"http://{host}/", safe_fetch.FetchPolicy())
+
+
+@pytest.mark.parametrize("host", ["localhost", "db.localhost", "printer.local", "api.internal", "nas.home.arpa"])
+def test_local_names_are_refused_without_a_lookup(host):
+    with fake_dns({host: "93.184.215.14"}):
+        assert "local name" in safe_fetch.url_problem(f"http://{host}/", safe_fetch.FetchPolicy())
+
+
+@pytest.mark.parametrize("host", ["%31%32%37.0.0.1", "%6c%6f%63%61%6c%68%6f%73%74", "%31%36%39.254.169.254"])
+def test_percent_escaped_hosts_are_refused(host):
+    assert "percent-escape" in safe_fetch.url_problem(f"https://{host}/x", safe_fetch.FetchPolicy())
+
+
+def test_redirect_to_a_refused_scheme_is_reported_as_refused(server):
+    server.add("/r", status=302, headers={"Location": "ftp://example.com/file"})
+    result = safe_fetch.fetch_page(server.url("/r"), 3, _local_policy())
+    assert result.blocked and "ftp" in result.error
+
+
+def _through_proxy(server, monkeypatch):
+    for name in ("no_proxy", "NO_PROXY"):
+        monkeypatch.delenv(name, raising=False)
+    monkeypatch.setenv("http_proxy", server.url())
+    monkeypatch.setenv("https_proxy", server.url())
+    return safe_fetch.FetchPolicy(use_env_proxy=True)
+
+
+def test_proxy_mode_never_hands_the_proxy_a_percent_escaped_address(server, monkeypatch):
+    policy = _through_proxy(server, monkeypatch)
+    for url in ("http://%31%32%37.0.0.1/secret", "https://%31%36%39.254.169.254/latest/meta-data/"):
+        assert safe_fetch.fetch_page(url, 3, policy).blocked
+    assert server.total_hits == 0
+
+
+def test_proxy_mode_checks_where_a_redirect_resolves_before_following_it(server, monkeypatch):
+    policy = _through_proxy(server, monkeypatch)
+    server.add("http://site.example/start", status=302, headers={"Location": "http://intranet.example/secret"})
+    server.add("http://intranet.example/secret", body="<p>internal</p>")
+    with fake_dns({"site.example": "93.184.215.14", "intranet.example": "10.0.0.5"}):
+        result = safe_fetch.fetch_page("http://site.example/start", 3, policy)
+    assert result.blocked and "10.0.0.5" in result.error
+    assert server.hits["http://intranet.example/secret"] == 0

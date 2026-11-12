@@ -17,7 +17,8 @@ hop:
   `max_redirects` hops are followed.
 - Size: at most `max_bytes` of body are read; the result says if it was cut.
 - Time: `timeout` bounds the connect and each socket read, and the whole
-  body read is abandoned once `timeout` seconds of wall clock have passed.
+  request (headers, redirects and body) is cut off once `timeout` seconds of
+  wall clock have passed.
 - Content is never executed: page_text parses the body; no script runs and
   no external resource is loaded.
 
@@ -33,6 +34,7 @@ import ipaddress
 import re
 import socket
 import ssl
+import threading
 import time
 import urllib.error
 import urllib.parse
@@ -173,6 +175,10 @@ def url_problem(url: str, policy: FetchPolicy) -> str | None:
         return "URL has no host"
     if port == 0:
         return "URL has an invalid port"
+    if "%" in host:
+        # urllib unquotes the host before connecting, so "%31%32%37.0.0.1" would be
+        # checked as a name here and handed to a proxy as 127.0.0.1.
+        return f"host {host} contains a percent-escape"
     if _host_exempt(host, policy):
         return None
     if host in _BLOCKED_NAMES or host.endswith(_BLOCKED_SUFFIXES):
@@ -220,25 +226,36 @@ def _guarded(base: type, policy: FetchPolicy) -> type:
     class Guarded(base):  # type: ignore[misc, valid-type]
         def __init__(self, *args: Any, **kwargs: Any) -> None:
             super().__init__(*args, **kwargs)
-            # http.client opens every socket through this attribute (3.10-3.13).
+            # http.client opens every socket through this attribute (3.10-3.14).
             self._create_connection = functools.partial(_guarded_create_connection, policy=policy)
 
     return Guarded
 
 
+def _tracked(base: type, sockets: list) -> type:
+    """Record each connection's socket in `sockets`, so fetch_page's deadline
+    timer can shut it down while a read is blocked on it."""
+    class Tracked(base):  # type: ignore[misc, valid-type]
+        def connect(self) -> None:
+            super().connect()
+            sockets.append(self.sock)
+
+    return Tracked
+
+
 class _GuardedHTTPHandler(urllib.request.HTTPHandler):
-    def __init__(self, policy: FetchPolicy) -> None:
+    def __init__(self, policy: FetchPolicy, sockets: list) -> None:
         super().__init__()
-        self._conn_class = _guarded(http.client.HTTPConnection, policy)
+        self._conn_class = _tracked(_guarded(http.client.HTTPConnection, policy), sockets)
 
     def http_open(self, req):
         return self.do_open(self._conn_class, req)
 
 
 class _GuardedHTTPSHandler(urllib.request.HTTPSHandler):
-    def __init__(self, policy: FetchPolicy) -> None:
+    def __init__(self, policy: FetchPolicy, sockets: list) -> None:
         super().__init__(context=ssl.create_default_context())
-        self._conn_class = _guarded(http.client.HTTPSConnection, policy)
+        self._conn_class = _tracked(_guarded(http.client.HTTPSConnection, policy), sockets)
 
     def https_open(self, req):
         return self.do_open(self._conn_class, req, context=self._context)
@@ -259,13 +276,21 @@ def _keep_alive(base: type) -> type:
 
 
 class _ProxyHTTPHandler(urllib.request.HTTPHandler):
+    def __init__(self, sockets: list) -> None:
+        super().__init__()
+        self._conn_class = _tracked(_keep_alive(http.client.HTTPConnection), sockets)
+
     def http_open(self, req):
-        return self.do_open(_keep_alive(http.client.HTTPConnection), req)
+        return self.do_open(self._conn_class, req)
 
 
 class _ProxyHTTPSHandler(urllib.request.HTTPSHandler):
+    def __init__(self, sockets: list) -> None:
+        super().__init__(context=ssl.create_default_context())
+        self._conn_class = _tracked(_keep_alive(http.client.HTTPSConnection), sockets)
+
     def https_open(self, req):
-        return self.do_open(_keep_alive(http.client.HTTPSConnection), req, context=self._context)
+        return self.do_open(self._conn_class, req, context=self._context)
 
 
 class _GuardedRedirectHandler(urllib.request.HTTPRedirectHandler):
@@ -305,18 +330,18 @@ def _resolution_problem(url: str, policy: FetchPolicy) -> str | None:
     return None
 
 
-def _build_opener(policy: FetchPolicy) -> urllib.request.OpenerDirector:
+def _build_opener(policy: FetchPolicy, sockets: list) -> urllib.request.OpenerDirector:
     # Built by hand: build_opener() always adds FileHandler, FTPHandler and
     # DataHandler, which is exactly the surface this module exists to remove.
     opener = urllib.request.OpenerDirector()
     if policy.use_env_proxy:
         handlers: list[urllib.request.BaseHandler] = [
             urllib.request.ProxyHandler(),
-            _ProxyHTTPHandler(),
-            _ProxyHTTPSHandler(context=ssl.create_default_context()),
+            _ProxyHTTPHandler(sockets),
+            _ProxyHTTPSHandler(sockets),
         ]
     else:
-        handlers = [_GuardedHTTPHandler(policy), _GuardedHTTPSHandler(policy)]
+        handlers = [_GuardedHTTPHandler(policy, sockets), _GuardedHTTPSHandler(policy, sockets)]
     handlers += [
         urllib.request.UnknownHandler(),
         urllib.request.HTTPDefaultErrorHandler(),
@@ -376,12 +401,32 @@ def fetch_page(url: str, timeout: float, policy: FetchPolicy | None = None, *,
         "Accept-Encoding": "identity",
     })
     deadline = time.monotonic() + timeout
+    # The socket timeout is per read, so a server sending one header byte at a
+    # time never trips it. This timer bounds the whole request, redirects
+    # included, by shutting down whatever sockets are open when it fires.
+    sockets: list[socket.socket] = []
+    expired = threading.Event()
+
+    def cut_off() -> None:
+        expired.set()
+        for sock in list(sockets):
+            try:
+                sock.shutdown(socket.SHUT_RDWR)
+            except OSError:
+                pass
+
+    late = FetchResult(error=f"timed out: response not complete within the {timeout:g}s timeout", transient=True)
+    timer = threading.Timer(timeout, cut_off)
+    timer.daemon = True
+    timer.start()
     try:
-        with _build_opener(policy).open(request, timeout=timeout) as response:
+        with _build_opener(policy, sockets).open(request, timeout=timeout) as response:
             status = response.status
             final_url = response.geturl()
             headers = response.headers
             body, truncated = _read_capped(response, policy.max_bytes, deadline, timeout)
+        if expired.is_set():
+            return late
     except BlockedURL as exc:
         return FetchResult(error=f"refused: {exc}", blocked=True)
     except RedirectLimit as exc:
@@ -397,11 +442,13 @@ def fetch_page(url: str, timeout: float, policy: FetchPolicy | None = None, *,
     except urllib.error.URLError as exc:
         if isinstance(exc.reason, BlockedURL):
             return FetchResult(error=f"refused: {exc.reason}", blocked=True)
-        return FetchResult(error=f"connection failed: {exc.reason}", transient=True)
+        return late if expired.is_set() else FetchResult(error=f"connection failed: {exc.reason}", transient=True)
     except (TimeoutError, socket.timeout) as exc:
         return FetchResult(error=f"timed out: {exc}", transient=True)
     except (OSError, http.client.HTTPException, ValueError) as exc:
-        return FetchResult(error=f"fetch failed: {type(exc).__name__}: {exc}", transient=True)
+        return late if expired.is_set() else FetchResult(error=f"fetch failed: {type(exc).__name__}: {exc}", transient=True)
+    finally:
+        timer.cancel()
 
     raw_type = headers.get("Content-Type") or ""
     kind = classify(headers.get_content_type() if raw_type else "", body)
