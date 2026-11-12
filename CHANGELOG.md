@@ -22,6 +22,8 @@
 
 ### Fixed
 
+- A run that checked no claims (an empty claims file, or a draft where no link had a claim attached) exited 0 and its certificate read "Every claim was quoted from its cited source". It now exits 5 and the certificate reads "Nothing was checked".
+- Drafts that cite with numbered markers and a Sources list, footnotes or reference-style links yielded no claims. The extractor now resolves those to their URLs.
 - Removed a duplicated `Fixed` block under 0.5.0.
 
 ## 0.5.0

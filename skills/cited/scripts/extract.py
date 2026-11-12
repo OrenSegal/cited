@@ -489,9 +489,69 @@ def _bare_pairs(block: str, start_line: int, biblio: bool) -> Iterator[tuple[int
                 yield line, claim, url, url, bucket, reason, inferred
 
 
+DEFINITION = re.compile(r"^ {0,3}\[([^\]\[]+)\]:\s+\S")  # "[ref]: url", "[^2]: note with a url"
+NUMBERED_SOURCE = re.compile(r"^\s*(?:[-*+]\s+)?\[?(\d+)[\].):]+\s")  # "1. url", "[1] url" in a sources list
+MARKER = re.compile(r"\[(\^[^\]\[\s]+|\d+)\](?![(:])")  # "[1]", "[^2]", not "[1](url)" or a definition
+REFERENCE_LINK = re.compile(r"\[([^\]\[]+)\]\[([^\]\[]*)\]")  # "[text][ref]", "[text][]"
+
+
+def _first_url(line: str) -> str:
+    link = INLINE_LINK.search(line)
+    if link:
+        return link.group(2).strip("<>")
+    bare = BARE_URL.search(line)
+    return _trim_url(bare.group(1)) if bare else ""
+
+
+def _resolve_references(markdown: str) -> str:
+    """Rewrite numbered, footnote and reference-style citations as the inline
+    forms the rest of this module reads, keeping every line number.
+
+    "[1]" with a numbered entry under a Sources heading, "[^2]" with a
+    "[^2]: url" note, and "[text][ref]" with a "[ref]: url" definition are how
+    most generated reports cite. Unresolved, such a draft yields no claims at
+    all. A marker becomes " (url)", a reference link becomes "[text](url)", and
+    definition lines are blanked, as a renderer would drop them."""
+    lines = markdown.split("\n")
+    urls: dict[str, str] = {}
+    biblio = False
+    for i, line in enumerate(lines):
+        if line.lstrip().startswith("#"):
+            biblio = bool(BIBLIOGRAPHIC_HEADING.match(line))
+            continue
+        definition = DEFINITION.match(line)
+        numbered = NUMBERED_SOURCE.match(line) if biblio and not definition else None
+        key = definition.group(1) if definition else numbered.group(1) if numbered else ""
+        url = _first_url(line[definition.end() - 1:] if definition else line) if key else ""
+        if url.lower().startswith(("http://", "https://")):
+            urls.setdefault(key.lower(), url)
+            if definition:
+                lines[i] = ""
+    if not urls:
+        return markdown
+
+    def marker(m: re.Match) -> str:
+        url = urls.get(m.group(1).lower())
+        return f" ({url})" if url else m.group(0)
+
+    def reference(m: re.Match) -> str:
+        url = urls.get((m.group(2) or m.group(1)).lower())
+        return f"[{m.group(1)}]({url})" if url else m.group(0)
+
+    biblio = False
+    for i, line in enumerate(lines):
+        if line.lstrip().startswith("#"):
+            biblio = bool(BIBLIOGRAPHIC_HEADING.match(line))
+        elif not biblio:
+            lines[i] = REFERENCE_LINK.sub(reference, MARKER.sub(marker, line))
+    return "\n".join(lines)
+
+
 def extract(markdown: str, doc_id: str = "doc") -> list[Pair]:
     """Extract and classify every link in a markdown document: inline links,
-    then bare URLs (in prose, bracketed tags and table rows)."""
+    then bare URLs (in prose, bracketed tags and table rows). Numbered,
+    footnote and reference-style citations are resolved to their URLs first."""
+    markdown = _resolve_references(markdown)
     pairs: list[Pair] = []
     seq = 0
 
