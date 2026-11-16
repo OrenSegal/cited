@@ -6,15 +6,16 @@ cited re-fetches every page a claim cites and flags claims whose words, numbers 
 
 On 29 hand-labelled claims about one page, it flags 10 of the 15 that are not on it: recall 0.67, 95% bootstrap CI 0.41-0.90 ([Results](#results)). It checks containment, not truth.
 
-Try it from a fresh clone (fetches six live pages; exit 1 means some claims did not check out, as two should here):
+Try it (fetches six live pages; it exits 1 because two of the six claims are not on their pages):
 
-`git clone https://github.com/OrenSegal/cited && cd cited && bin/cited docs/examples/sample-draft.md`
+```bash
+git clone --depth 1 https://github.com/OrenSegal/cited && cd cited
+bin/cited docs/examples/sample-draft.md
+```
 
 [![Sample certificate rendered locally by the cited CLI: 3 verified, 1 needs review, 2 not on page](docs/examples/sample-certificate.png)](docs/examples/sample-certificate.html)
 
-*A sample certificate, rendered locally by the command-line tool, not a page from a live service. `docs/examples/render.sh` ran `cited sample-draft.md --certificate` against the live pages for six claims about RFC 2606, RFC 2119 and the Python 3.12.0 release (3 verified, 1 needs review, 2 not on page), then screenshotted the HTML with headless Chrome ([HTML](docs/examples/sample-certificate.html), [draft](docs/examples/sample-draft.md), [JSON](docs/examples/sample-report.json)).*
-
-`hosted/` holds a certificate web app (Vercel + Supabase + Stripe). **It is not deployed**: there is no public URL, nothing has been sold through it, and its demo lane is off unless `CITED_DEMO_MAX_CLAIMS` is set. It runs locally; see [hosted/README.md](hosted/README.md).
+*Rendered locally by the command-line tool from six claims about RFC 2606, RFC 2119 and the Python 3.12.0 release: 3 verified, 1 needs review, 2 not on page. Not a live service. `docs/examples/render.sh` regenerates it ([HTML](docs/examples/sample-certificate.html), [draft](docs/examples/sample-draft.md), [JSON](docs/examples/sample-report.json)).*
 
 ## Components
 
@@ -227,6 +228,10 @@ A CI step (GitHub Actions) that replays a committed cache:
 ## Security
 
 cited fetches URLs an agent wrote, so it treats them as hostile. Only `http` and `https` are fetched. Loopback, private, link-local, cloud-metadata and other non-public addresses are refused, including after a redirect, when a hostname resolves to one, and for odd spellings such as `2130706433` or `[::ffff:127.0.0.1]`. The check runs on the exact address being connected to, so DNS rebinding does not get around it. Redirects, response size and time are capped, and fetched content is never executed. [SECURITY.md](SECURITY.md) lists exactly what is and is not enforced, and the flags that relax it.
+
+## Hosted app
+
+`hosted/` holds a certificate web app (Vercel + Supabase + Stripe). **It is not deployed**: there is no public URL, nothing has been sold through it, and its demo lane is off unless `CITED_DEMO_MAX_CLAIMS` is set. It runs locally; see [hosted/README.md](hosted/README.md).
 
 ## Limitations
 
