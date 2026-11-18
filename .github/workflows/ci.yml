@@ -57,3 +57,19 @@ jobs:
         run: claude plugin validate commands --strict
       - name: Validate skills
         run: claude plugin validate skills --strict
+
+  # One stable name for the main-branch ruleset to require (.github/rulesets/main.json).
+  # Matrix jobs report one check per leg, and the leg names change with the matrix.
+  # This job passes only when every job above passed or was skipped.
+  ci-ok:
+    name: ci-ok
+    if: always()
+    needs: [test, validate]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Every job passed
+        env:
+          NEEDS: ${{ toJSON(needs) }}
+        run: |
+          echo "$NEEDS" | jq -r 'to_entries[] | "\(.key): \(.value.result)"'
+          echo "$NEEDS" | jq -e 'all(.[]; .result == "success" or .result == "skipped")' > /dev/null
