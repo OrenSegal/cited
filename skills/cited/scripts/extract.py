@@ -257,6 +257,54 @@ def _narrow(raw_sentence: str, links: list[re.Match], i: int) -> tuple[str, bool
     return window, True
 
 
+FOOTNOTE_MARKER = re.compile(r"^[\[(]?\s*(\d{1,3}|[*\u2020\u2021\u00a7]{1,3})\s*[\])]?$")
+
+
+def _marker_span(raw_sentence: str, link: re.Match) -> tuple[int, int] | None:
+    """The stretch of the sentence a citation marker occupies, or None if the
+    link is not one. A marker is a footnote number ("[1]", "*"), or a
+    navigational link that is alone inside its brackets: "([source](url))"."""
+    if not _is_bare(link.group(1)):
+        return None
+    before, after = raw_sentence[:link.start()].rstrip(), raw_sentence[link.end():].lstrip()
+    if before.endswith(("(", "[")) and after.startswith((")", "]")):
+        return len(before) - 1, len(raw_sentence) - len(after) + 1
+    if FOOTNOTE_MARKER.match(link.group(1).strip()):
+        return link.start(), link.end()
+    return None
+
+
+def _own_sentence_claim(raw_sentence: str, links: list[re.Match], i: int) -> str:
+    """The claim a citation marker supports when it sits inside the sentence
+    it cites: "Acme has 500 employees ([source](url))." Empty when link i is
+    not a marker, or the sentence has nothing else in it (then the claim is
+    the sentence before, as for a trailing "[Source](url)").
+
+    With several markers in one sentence, each takes the text since the one
+    before it, the same way a bare URL does."""
+    spans = [_marker_span(raw_sentence, link) for link in links]
+    own = spans[i]
+    if own is None:
+        return ""
+
+    def tidy(text: str) -> str:
+        text = re.sub(r"\s+([.,;:!?])", r"\1", _strip_markdown(text))
+        text = re.sub(r"^[\s,;:+&|/\u2013\u2014-]+|[\s,;:+&|/\u2013\u2014-]+$", "", text)
+        return re.sub(r"^(and|or|but|plus|while|whereas)\s+", "", text, flags=re.IGNORECASE)
+
+    markers = [span for span in spans if span is not None]
+    if len(markers) > 1:
+        lo = max((end for _, end in markers if end <= own[0]), default=0)
+        window = tidy(raw_sentence[lo:own[0]])
+        if len(window.split()) >= MIN_CLAIM_WORDS:
+            return window
+    rest = raw_sentence
+    for lo, hi in sorted(markers, reverse=True):
+        rest = rest[:lo] + " " + rest[hi:]
+    claim = tidy(rest)
+    return claim if len(claim.split()) >= MIN_CLAIM_WORDS and not _is_bare(claim) else ""
+
+
 # Research notes rarely cite with [text](url). They put a bare URL after the
 # claim, often in a bracketed tag ("[S, single source: https://...]"), in the
 # last cell of a table row, or without a scheme at all ("(help.example.com/p)").
@@ -535,6 +583,15 @@ def extract(markdown: str, doc_id: str = "doc") -> list[Pair]:
                 # navigational one. Requiring brevity keeps the two apart.
                 swallows = (bool(claim) and len(plain) >= 0.6 * len(claim)
                             and len(plain.split()) <= 4)
+
+                own = _own_sentence_claim(raw_sentence, links, i) if bare else ""
+                if own:
+                    score, tags = _salience(own)
+                    tags.append("marker")
+                    pairs.append(Pair(pid, own, url, "checkable", link_text, line,
+                                      "citation marker inside the sentence it supports",
+                                      score, tags))
+                    continue
 
                 if bare or swallows:
                     prev = ""

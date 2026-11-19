@@ -246,3 +246,53 @@ class BareUrlClauses(unittest.TestCase):
     def test_a_list_of_dated_example_urls_is_not_a_claim(self):
         md = "- **Example URLs:** https://a.example/1 (2017-04-19); https://b.example/2 (2023-07-10).\n"
         self.assertEqual([p.bucket for p in extract(md, "t")], ["excluded", "excluded"])
+
+
+class CitationMarkersInsideTheSentence(unittest.TestCase):
+    """"X happened ([source](url))." and "X happened [[1]](url)." cite the
+    sentence they sit in. Shipped bug: the marker was only ever matched to the
+    sentence *before* it, so the first such claim in a paragraph was skipped
+    as "no claim attached" and every later one was checked against the
+    previous sentence's claim."""
+
+    def test_parenthesised_source_link_cites_its_own_sentence(self):
+        pairs = extract("The company has 500 employees ([source](https://example.com/a)).")
+        self.assertEqual([(p.bucket, p.claim) for p in pairs], [("checkable", "The company has 500 employees.")])
+
+    def test_each_marker_gets_its_own_sentence_not_the_one_before(self):
+        md = ("Northwind grew revenue 40% in 2025 ([source](https://example.com/b)). "
+              "It also hired 20 people ([link](https://example.com/c)).")
+        self.assertEqual([(p.claim, p.source_url) for p in extract(md)], [
+            ("Northwind grew revenue 40% in 2025.", "https://example.com/b"),
+            ("It also hired 20 people.", "https://example.com/c"),
+        ])
+
+    def test_numbered_marker_cites_its_own_sentence(self):
+        for marker in ("[[1]](https://example.com/e)", "[1](https://example.com/e)", "([2](https://example.com/e))"):
+            pairs = extract(f"Acme raised $12M in a Series A round {marker}.")
+            self.assertEqual([(p.bucket, p.claim) for p in pairs],
+                             [("checkable", "Acme raised $12M in a Series A round.")], marker)
+
+    def test_two_markers_in_one_sentence_each_take_the_text_before_them(self):
+        md = ("Alpha has 12,000 stars on its repository [[1]](https://example.com/a), "
+              "and Beta has 900 stars on its own [[2]](https://example.com/b).")
+        got = {p.source_url: p.claim for p in extract(md)}
+        self.assertIn("12,000", got["https://example.com/a"])
+        self.assertNotIn("900", got["https://example.com/a"])
+        self.assertIn("900", got["https://example.com/b"])
+        self.assertNotIn("12,000", got["https://example.com/b"])
+        self.assertNotIn("1", got["https://example.com/b"].split())
+
+    def test_marker_alone_after_the_sentence_still_repairs_from_it(self):
+        pairs = extract("Revenue grew 38% year over year. ([Source](https://example.com/ir))")
+        self.assertEqual([(p.bucket, p.claim) for p in pairs], [("repaired", "Revenue grew 38% year over year.")])
+
+    def test_navigation_in_running_prose_is_still_not_a_claim(self):
+        for md in ("You can read more [here](https://example.com/blog) if you want the background.",
+                   "See [the docs](https://example.com/docs) for setup details."):
+            self.assertEqual([p.bucket for p in extract(md)], ["excluded"], md)
+
+    def test_a_named_link_beside_a_marker_keeps_its_text_in_the_claim(self):
+        md = "[Alpha](https://example.com/alpha) has 12,000 stars and an MIT licence ([source](https://example.com/s))."
+        got = {p.source_url: p.claim for p in extract(md)}
+        self.assertEqual(got["https://example.com/s"], "Alpha has 12,000 stars and an MIT licence.")
