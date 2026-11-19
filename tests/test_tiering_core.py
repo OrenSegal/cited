@@ -230,3 +230,24 @@ def test_invented_name_opening_a_later_sentence_is_flagged():
 
     assert "Sequoia" in missing_specifics(
         "Beta Corp acquired Acme Robotics in 2022. Sequoia led the round.", ACQUISITION_PAGE)
+
+
+def test_possessive_of_a_name_on_the_page_is_not_a_missing_name():
+    # Shipped bug: "Acme's" was looked up as the word "acme's", so a claim using
+    # the possessive of a name the page spells plainly came back "Not on page".
+    from tiering_core import missing_specifics
+    page = "Acme published its annual report. Revenue grew strongly this year."
+    assert missing_specifics("According to Acme's annual report, revenue grew strongly.", page) == []
+    assert missing_specifics("The report says Acme’s revenue grew strongly.", page) == []
+
+
+def test_name_the_page_only_uses_as_a_possessive_is_on_the_page():
+    from tiering_core import missing_specifics
+    assert missing_specifics("The report says Acme grew strongly.", "Acme's revenue grew strongly this year.") == []
+    assert missing_specifics("The report says Acme grew strongly.", "Acme’s revenue grew strongly this year.") == []
+
+
+def test_possessive_of_a_name_missing_from_the_page_is_still_flagged():
+    from tiering_core import missing_specifics
+    page = "Acme published its annual report. Revenue grew strongly this year."
+    assert missing_specifics("The round was led by Sequoia's growth fund.", page) == ["Sequoia's"]

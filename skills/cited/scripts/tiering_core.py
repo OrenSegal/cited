@@ -164,6 +164,10 @@ _SENTENCE_OPENERS = frozenset({
 })
 
 
+def _without_possessive(word: str) -> str:
+    return re.sub(r"'s?$", "", word)
+
+
 def missing_specifics(claim: str, page_text: str) -> list[str]:
     """Numbers (with their scale word), capitalized names and one-letter
     identifiers like "Series B" in the claim that do not appear on the page.
@@ -180,12 +184,14 @@ def missing_specifics(claim: str, page_text: str) -> list[str]:
     page_lower = " " + " ".join(_words(page_text)) + " "
     missing += sorted(i for i in _letter_identifiers(claim)
                       if " " + " ".join(_words(i)) + " " not in page_lower)
+    # "Acme's" and "Acme" are one name, whichever side writes the possessive.
     page_words = set(_words(page_text))
+    page_words |= {_without_possessive(w) for w in page_words}
     for i, sentence in enumerate(_SENTENCE_BREAK.split(str(claim or ""))):
         tokens = re.findall(r"[A-Za-z][A-Za-z']*", sentence)
         skip_first = i == 0 or (tokens and (tokens[0].lower() in _STOPWORDS or tokens[0].lower() in _SENTENCE_OPENERS))
         for token in tokens[1:] if skip_first else tokens:
-            if len(token) >= 2 and token[0].isupper() and token.lower() not in page_words:
+            if len(token) >= 2 and token[0].isupper() and _without_possessive(token.lower()) not in page_words:
                 if token not in missing:
                     missing.append(token)
     return missing
