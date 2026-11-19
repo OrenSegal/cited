@@ -17,6 +17,13 @@
 
 ### Fixed
 
+- Page text: words in adjacent HTML elements with no whitespace between the tags (`<h1>Acme Robotics</h1><p>Founded`) were fused into one word, so a name or number on a minified page could come back `unsupported`. Block elements, list items, table cells and `<br>` are now word boundaries.
+- Specifics check: the possessive of a name on the page (`Acme's`, against a page that says `Acme`, or the reverse) was reported as a missing name.
+- Markdown drafts: a citation marker inside the sentence it supports (`... ([source](url)).`, `... [[1]](url).`, `..., according to [this article](url).`) was skipped, or checked against the previous sentence's claim. It is now checked against its own sentence.
+- Markdown drafts: an image (`![alt](src)`) is listed as excluded instead of having its alt text checked against the image file, and a link written inside an inline code span is ignored like one in a fenced block.
+- `hosted/`: the Stripe webhook made the access code valid only after recording the order, so a storage failure between the two left a paid order whose code was refused, and the retry was answered "already handled". The code is now minted first.
+- `hosted/`: deleting a certificate also removes a saved re-check (`certs/{id}.recheck.json`), and a batch or finished page written by a visit that was still running when the owner deleted is removed again.
+- README and `docs/decisions.md` said any HTTP 403 comes back `snippet_only`. Only the listed platforms do; a 403 from any other site is `broken`. The tier table now says so.
 - Removed a duplicated `Fixed` block under 0.5.0.
 
 ## 0.5.0
