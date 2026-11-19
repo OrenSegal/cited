@@ -14,8 +14,10 @@ confidence with the same model that may have made the claim up.
 
 **Decision.** cited fetches every source URL itself, fresh, with a Wayback
 Machine fallback when the live page is gone or empty, and checks the claim
-against that page. A site that blocks scripted fetches (HTTP 403/429 or a bot
-challenge) with no archived copy comes back `snippet_only`, not verified.
+against that page. A site that blocks scripted fetches with no archived copy
+comes back `snippet_only`, not verified: HTTP 429 from any site, or HTTP 403
+or a bot challenge from one of the platforms listed in `fetcher.py`
+(`BOT_WALLED_DOMAINS`). A 403 from any other site is `broken`.
 
 **Alternatives considered and why rejected.**
 - Asking the producing model how sure it is: rejected in the README and

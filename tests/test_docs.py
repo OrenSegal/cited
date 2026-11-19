@@ -112,3 +112,13 @@ def test_security_lists_exactly_the_blocked_networks():
 def test_skill_covers_every_tier():
     for tier in TIERS:
         assert f"`{tier}`" in SKILL, tier
+
+
+def test_readme_says_which_sites_a_403_is_forgiven_for():
+    """snippet_only is not "any 403": a 403 is a bot wall only on the listed
+    platforms, and an unreachable source everywhere else."""
+    from fetcher import BOT_WALLED_DOMAINS
+    rows = {_code(row["Tier"]): row["Meaning"] for row in _table(README, "Tiers")}
+    for domain in BOT_WALLED_DOMAINS:
+        assert domain in rows["snippet_only"], domain
+    assert "403" in rows["broken"]

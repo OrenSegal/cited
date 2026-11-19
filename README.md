@@ -42,7 +42,7 @@ Asking the model that wrote a claim how sure it is does not catch a claim it mad
 - **Containment, not similarity.** String-similarity scores divide by the length of both texts, so a real quote on a long page scores near zero. cited divides by the claim alone, so page length can neither hide nor manufacture a match.
 - **Quotation and vocabulary are scored separately.** Shared word sequences show quotation. Shared vocabulary survives rewording but only shows the claim is on the same topic, so a vocabulary-only match is `low_match` and needs a person.
 - **Specifics must be on the page.** Numbers (with their scale, so `$40 billion` does not pass for `$40 million`), capitalized names and identifiers like `Series B` in the claim must all appear on the page, or the claim is `unsupported`.
-- **Fair to sites that block bots.** Sites such as Reddit, X and LinkedIn refuse scripted fetches. Those come back `snippet_only`, not as fabrications or dead links.
+- **Fair to sites that block bots.** Sites such as Reddit, X and LinkedIn refuse scripted fetches. Those come back `snippet_only`, not as fabrications or dead links. The list is fixed (see [Tiers](#tiers)): a 403 from any other site is reported as `broken`.
 
 ## Results
 
@@ -112,9 +112,9 @@ An invalid file is rejected before anything is fetched, with every problem liste
 | `verified` | Verified | The claim is substantially quoted from the live (or archived) page. | no | no |
 | `low_match` | Needs review | The claim shares vocabulary with the page but is not quoted from it. A made-up claim about a real company also shares its name with the company's site, so a person must check it. | yes | yes |
 | `unsupported` | Not on page | The page loaded and is readable, and the claim, or one of its numbers or names, is not on it. The fabrication signal. | yes | yes |
-| `broken` | Broken source | The URL is invalid, refused (see Security), or unreachable, and no archived copy helped. | yes | yes |
+| `broken` | Broken source | The URL is invalid, refused (see Security), or unreachable (a timeout, a DNS failure, HTTP 404 or 5xx, or HTTP 403 from a site not listed under `snippet_only`), and no archived copy helped. | yes | yes |
 | `unverified` | Unverified | Never checked: the page is a PDF or binary, too thin to read (a JavaScript app, a consent wall), too large to read in full and the claim was not in the part read, or missing from an `--offline` cache. | no | yes |
-| `snippet_only` | Snippet-only | The site blocks scripted fetches (HTTP 403/429, or a bot challenge page) and no archived copy exists. | no | yes |
+| `snippet_only` | Snippet-only | The site blocks scripted fetches and no archived copy exists: HTTP 429 from any site, or HTTP 403 or a bot challenge page from a platform known to refuse every script (reddit.com, x.com, twitter.com, linkedin.com, glassdoor.com, indeed.com). | no | yes |
 
 ## Exit codes
 

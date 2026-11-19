@@ -115,6 +115,15 @@ def test_check_source_snippet_only_for_bot_walled_domain_403():
     assert "reddit.com" in verdict.note
 
 
+def test_check_source_403_from_an_unlisted_site_is_broken():
+    # Only the listed platforms are known to answer 403 to every script. A 403
+    # from anywhere else is reported as an unreachable source, and the README
+    # tier table says so (tests/test_docs.py).
+    verdict = check_source("https://example.com/report", "claim text", StubFetcher(FetchResult(status=403)))
+    assert verdict.tier == TIER_BROKEN
+    assert "HTTP 403" in verdict.note
+
+
 def test_check_source_blocked_url_is_broken_and_never_sent_to_wayback():
     stub = StubFetcher(FetchResult(error="refused: address 10.0.0.1 is not a public address", blocked=True), ARCHIVED)
     verdict = check_source("http://10.0.0.1/", "claim text", stub)
