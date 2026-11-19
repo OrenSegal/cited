@@ -343,6 +343,19 @@ def test_job_batches_never_contact_private_addresses(tmp_path, server):
 # Owner delete link
 
 
+def test_delete_also_removes_a_saved_recheck(tmp_path, server):
+    # `recheck.py --id ID --save` stores certs/{id}.recheck.json: a second copy
+    # of every claim and verdict. The delete page says the results are gone.
+    app = _app(tmp_path, LOCAL)
+    cert_id, key = _start(app, _cert_draft(server))
+    _finish(app, cert_id)
+    app.storage.put(f"certs/{cert_id}.recheck.json", b'{"results": []}', "application/json")
+
+    assert app.handle("POST", f"/c/{cert_id}/delete", f"key={key}".encode(), FORM).status == 200
+    left = sorted(p.name for p in (tmp_path / "data" / "certs").iterdir())
+    assert left == [f"{cert_id}.deleted"]
+
+
 def test_owner_can_delete_with_the_secret_link_only(tmp_path, server):
     app = _app(tmp_path, LOCAL)
     cert_id, key = _start(app, _cert_draft(server))

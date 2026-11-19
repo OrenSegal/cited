@@ -723,7 +723,7 @@ This cannot be undone.</p>
 <a href="/c/{cert_id}">Keep it</a></div></form>""", head='<meta name="robots" content="noindex">')
         storage.put(f"certs/{cert_id}.deleted", b"", "text/plain")
         total = max(1, math.ceil(len(meta["entries"]) / meta.get("batch_size", BATCH_SIZE)))
-        for item in [f"certs/{cert_id}.html", f"certs/{cert_id}.json",
+        for item in [f"certs/{cert_id}.html", f"certs/{cert_id}.json", f"certs/{cert_id}.recheck.json",
                      *(f"jobs/{cert_id}/b{n}.json" for n in range(total)), f"jobs/{cert_id}.json"]:
             storage.delete(item)
         return _page("Deleted", '<h1>Deleted</h1><p class="lede">The certificate and its results are gone. '
