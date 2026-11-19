@@ -345,3 +345,15 @@ class AttributedNavigationalLinks(unittest.TestCase):
     def test_a_price_per_page_is_not_an_attribution(self):
         md = "Printing costs $5 per [page](https://example.com/p)."
         self.assertEqual([p.bucket for p in extract(md)], ["excluded"])
+
+
+class CodeSpans(unittest.TestCase):
+    def test_a_link_shown_as_inline_code_is_not_a_citation(self):
+        # A fenced example was already ignored; the same example in backticks
+        # was fetched and scored as a claim.
+        md = "Write a citation as `[the 2024 annual report](https://example.com/x)` so that cited can find it later."
+        self.assertEqual(extract(md), [])
+
+    def test_code_inside_link_text_is_still_a_link(self):
+        pairs = extract("The limit of 40 requests is set in [`settings.json`](https://example.com/settings.json) today.")
+        self.assertEqual([(p.bucket, p.source_url) for p in pairs], [("checkable", "https://example.com/settings.json")])

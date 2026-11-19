@@ -570,7 +570,11 @@ def extract(markdown: str, doc_id: str = "doc") -> list[Pair]:
             if found:
                 cursor = found.end()
             line = start_line + block[: found.start() if found else 0].count("\n")
-            found_links = list(INLINE_LINK.finditer(raw_sentence))
+            # A link written inside backticks is an example of syntax, like one
+            # in a fenced block: not a citation, so not listed and not checked.
+            code = [m.span() for m in CODE_SPAN.finditer(raw_sentence)]
+            found_links = [m for m in INLINE_LINK.finditer(raw_sentence)
+                           if not any(lo <= m.start() and m.end() <= hi for lo, hi in code)]
             # ![alt](src) embeds a picture. It is listed, never checked, and it
             # is not a neighbouring source when a real link's span is worked out.
             images = [m for m in found_links if raw_sentence[max(0, m.start() - 1):m.start()] == "!"]
