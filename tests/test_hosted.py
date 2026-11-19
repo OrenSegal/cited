@@ -458,6 +458,48 @@ def test_stripe_webhook_mints_one_code_per_paid_session(tmp_path, server):
     assert _post(app, markdown=_cert_draft(server), mode="certificate", code=order["code"]).status == 409
 
 
+class _FailOnce(st.LocalStorage):
+    """Local storage whose first write under `prefix` fails, like a Supabase blip."""
+
+    def __init__(self, root, prefix: str) -> None:
+        super().__init__(root)
+        self.prefix, self.failed = prefix, False
+
+    def put(self, key: str, data: bytes, content_type: str) -> None:
+        if key.startswith(self.prefix) and not self.failed:
+            self.failed = True
+            raise st.StorageError("storage blip")
+        super().put(key, data, content_type)
+
+
+def test_stripe_retry_after_a_storage_failure_still_gives_the_buyer_a_working_code(tmp_path, server):
+    # Shipped bug: the order was recorded before the code was made valid. If
+    # that second write failed, Stripe's retry found the order and answered
+    # "already handled", so the buyer had paid for a code the app refuses.
+    now = 1_700_000_000
+    app = webapp.App(storage=_FailOnce(tmp_path / "data", "minted/"), policy=LOCAL, stripe_secret="whsec_test",
+                     clock=lambda: now, timeout=5.0, per_host_delay=0, use_wayback=False)
+    payload = _stripe_event()
+    hook = lambda: app.handle("POST", "/stripe/webhook", payload, "application/json",  # noqa: E731
+                              headers={"stripe-signature": _sign(payload, "whsec_test", now)})
+
+    assert hook().status == 503, "the failed delivery must ask Stripe to retry"
+    assert hook().status == 200
+    order = json.loads((tmp_path / "data" / "orders" / "cs_test_a1B2c3.json").read_text())
+    _start(app, _cert_draft(server), order["code"])
+
+
+def test_stripe_duplicate_delivery_leaves_only_the_first_code_valid(tmp_path, server):
+    now = 1_700_000_000
+    app = webapp.App(storage=st.LocalStorage(tmp_path / "data"), policy=LOCAL, stripe_secret="whsec_test",
+                     clock=lambda: now, timeout=5.0, per_host_delay=0, use_wayback=False)
+    payload = _stripe_event()
+    for _ in range(3):
+        app.handle("POST", "/stripe/webhook", payload, "application/json",
+                   headers={"stripe-signature": _sign(payload, "whsec_test", now)})
+    assert len(list((tmp_path / "data" / "minted").iterdir())) == 1
+
+
 def test_stripe_webhook_is_off_without_a_secret(tmp_path):
     response = _app(tmp_path).handle("POST", "/stripe/webhook", _stripe_event(), "application/json")
     assert response.status == 503

@@ -755,9 +755,14 @@ This cannot be undone.</p>
         code = secrets.token_urlsafe(9)
         email = str((session.get("customer_details") or {}).get("email") or "")
         order = {"session": session_id, "email": email, "code": code, "created": utc_now(), "emailed": False}
-        if not storage.create(f"orders/{session_id}.json", json.dumps(order).encode()):
-            return reply(200, "already handled")  # Stripe retries; one code per session
+        # Make the code valid before recording the order. The other way round, a
+        # storage failure between the two writes left an order whose code the
+        # app refuses, and Stripe's retry was answered "already handled". A
+        # failure here leaves at worst a valid code nobody was ever shown.
         storage.put(f"minted/{_sha(code)}", session_id.encode(), "text/plain")
+        if not storage.create(f"orders/{session_id}.json", json.dumps(order).encode()):
+            storage.delete(f"minted/{_sha(code)}")  # Stripe retries; one code per session
+            return reply(200, "already handled")
         if email_access_code(email, code):
             storage.put(f"orders/{session_id}.json", json.dumps({**order, "emailed": True}).encode(), "application/json")
         return reply(200, "code minted")
