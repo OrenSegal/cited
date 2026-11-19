@@ -88,8 +88,8 @@ def split_sentences(text: str) -> list[str]:
 
 def _strip_markdown(text: str) -> str:
     """Flatten inline markup so the claim reads as the sentence a human read."""
+    text = re.sub(r"!\[[^\]]*\]\([^)]*\)", "", text)  # images first: their alt text is not prose
     text = INLINE_LINK.sub(lambda m: m.group(1), text)
-    text = re.sub(r"!\[[^\]]*\]\([^)]*\)", "", text)
     text = re.sub(r"`([^`]*)`", r"\1", text)
     text = re.sub(r"\*\*([^*]+)\*\*", r"\1", text)
     text = re.sub(r"(?<!\w)[*_]([^*_]+)[*_](?!\w)", r"\1", text)
@@ -556,8 +556,12 @@ def extract(markdown: str, doc_id: str = "doc") -> list[Pair]:
             if found:
                 cursor = found.end()
             line = start_line + block[: found.start() if found else 0].count("\n")
-            links = list(INLINE_LINK.finditer(raw_sentence))
-            for i, match in enumerate(links):
+            found_links = list(INLINE_LINK.finditer(raw_sentence))
+            # ![alt](src) embeds a picture. It is listed, never checked, and it
+            # is not a neighbouring source when a real link's span is worked out.
+            images = [m for m in found_links if raw_sentence[max(0, m.start() - 1):m.start()] == "!"]
+            links = [m for m in found_links if m not in images]
+            for match in found_links:
                 seq += 1
                 link_text = match.group(1)
                 url = match.group(2).strip("<>")
@@ -567,6 +571,11 @@ def extract(markdown: str, doc_id: str = "doc") -> list[Pair]:
                     pairs.append(Pair(pid, "", url, "excluded", link_text, line,
                                       "not an http(s) source"))
                     continue
+                if match in images:
+                    pairs.append(Pair(pid, "", url, "excluded", link_text, line,
+                                      "an image, not a source"))
+                    continue
+                i = links.index(match)
                 if biblio:
                     pairs.append(Pair(pid, "", url, "excluded", link_text, line,
                                       "under a references/sources heading: bibliography, "

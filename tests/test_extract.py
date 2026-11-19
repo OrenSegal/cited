@@ -296,3 +296,26 @@ class CitationMarkersInsideTheSentence(unittest.TestCase):
         md = "[Alpha](https://example.com/alpha) has 12,000 stars and an MIT licence ([source](https://example.com/s))."
         got = {p.source_url: p.claim for p in extract(md)}
         self.assertEqual(got["https://example.com/s"], "Alpha has 12,000 stars and an MIT licence.")
+
+
+class Images(unittest.TestCase):
+    """![alt](src) embeds a picture; it does not cite a source. Shipped bug: the
+    alt text was checked as a claim against the image file, which came back
+    "unverified" (binary) and failed a --strict run."""
+
+    def test_an_image_is_listed_but_never_checked(self):
+        pairs = extract("![Chart showing 40% growth in 2025 for Northwind](https://example.com/chart.png)")
+        self.assertEqual([(p.bucket, p.source_url) for p in pairs], [("excluded", "https://example.com/chart.png")])
+        self.assertIn("image", pairs[0].reason)
+
+    def test_alt_text_stays_out_of_a_neighbouring_claim(self):
+        md = ("Northwind grew revenue 40% in 2025 ![Bar chart](https://example.com/c.png) according to "
+              "[its annual report](https://example.com/r).")
+        got = {p.source_url: (p.bucket, p.claim) for p in extract(md)}
+        self.assertEqual(got["https://example.com/c.png"][0], "excluded")
+        self.assertEqual(got["https://example.com/r"],
+                         ("checkable", "Northwind grew revenue 40% in 2025 according to its annual report."))
+
+    def test_a_linked_badge_is_navigation_not_a_claim(self):
+        pairs = extract("[![build status](https://example.com/b.svg)](https://example.com/ci)")
+        self.assertEqual([p.bucket for p in pairs], ["excluded"])
