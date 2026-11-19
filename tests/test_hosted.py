@@ -356,6 +356,25 @@ def test_delete_also_removes_a_saved_recheck(tmp_path, server):
     assert left == [f"{cert_id}.deleted"]
 
 
+def test_delete_while_a_batch_is_being_checked_leaves_no_results(tmp_path, server, monkeypatch):
+    # The owner deletes while another tab is mid-batch. That batch finished and
+    # was stored after the delete, leaving the claims and verdicts behind.
+    app = _app(tmp_path, LOCAL)
+    cert_id, key = _start(app, _cert_draft(server))
+    real = webapp.check_entries
+
+    def check_then_delete(*args, **kwargs):
+        result = real(*args, **kwargs)
+        assert app.handle("POST", f"/c/{cert_id}/delete", f"key={key}".encode(), FORM).status == 200
+        return result
+
+    monkeypatch.setattr(webapp, "check_entries", check_then_delete)
+    assert app.handle("GET", f"/c/{cert_id}").status == 410
+    jobs = tmp_path / "data" / "jobs"
+    assert not list(jobs.rglob("b*.json")) and not (jobs / f"{cert_id}.json").exists()
+    assert sorted(p.name for p in (tmp_path / "data" / "certs").iterdir()) == [f"{cert_id}.deleted"]
+
+
 def test_owner_can_delete_with_the_secret_link_only(tmp_path, server):
     app = _app(tmp_path, LOCAL)
     cert_id, key = _start(app, _cert_draft(server))

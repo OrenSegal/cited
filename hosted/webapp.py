@@ -162,6 +162,10 @@ LINK_STATUS = {
 LINK_ORDER = tuple(LINK_STATUS)
 
 
+class JobDeleted(Exception):
+    """The owner deleted the certificate while its job was being checked."""
+
+
 class UserError(Exception):
     def __init__(self, message: str, status: int = 400) -> None:
         super().__init__(message)
@@ -442,11 +446,15 @@ It does not show the page is right.</p>""", head='<meta name="description" conte
         if not CERT_ID.fullmatch(cert_id):
             return _page("Not found", NO_CERT, 404)
         data, meta, deleted = self._cert_status(cert_id)
+        gone = _page("Deleted", "<h1>This certificate was deleted</h1>"
+                     '<p class="lede">Its owner removed it. Nothing about it is kept.</p>', 410)
         if deleted:
-            return _page("Deleted", "<h1>This certificate was deleted</h1>"
-                         '<p class="lede">Its owner removed it. Nothing about it is kept.</p>', 410)
+            return gone
         if data is None and meta is not None:
-            done, total = self.advance(cert_id, meta)
+            try:
+                done, total = self.advance(cert_id, meta)
+            except JobDeleted:
+                return gone
             if done < total:
                 return self.progress_page(meta, done, total)
             data = self.storage.get(f"certs/{cert_id}.html") if self.storage else None
@@ -675,6 +683,11 @@ Anyone with it can delete the certificate.</p>
                 row["index"] = n * size + offset
             storage.put(f"jobs/{cert_id}/b{n}.json", json.dumps(rows, ensure_ascii=False).encode("utf-8"),
                         "application/json")
+            # Checked after the write, not before: delete() sets the marker and
+            # then removes the batches, so whichever side runs second cleans up.
+            if storage.get(f"certs/{cert_id}.deleted") is not None:
+                storage.delete(f"jobs/{cert_id}/b{n}.json")
+                raise JobDeleted(cert_id)
             results[n] = rows
             ran += 1
         if len(results) == total:
@@ -684,7 +697,7 @@ Anyone with it can delete the certificate.</p>
     def finish(self, cert_id: str, meta: dict[str, Any], rows: list[dict[str, Any]]) -> None:
         storage = self._storage()
         if storage.get(f"certs/{cert_id}.deleted") is not None:
-            return
+            raise JobDeleted(cert_id)
         counts = {tier: 0 for tier in TIERS}
         for row in rows:
             counts[row["tier"]] = counts.get(row["tier"], 0) + 1
@@ -699,6 +712,10 @@ Anyone with it can delete the certificate.</p>
         storage.put(f"certs/{cert_id}.json", json.dumps(report, ensure_ascii=False).encode("utf-8"),
                     "application/json")
         storage.put(f"certs/{cert_id}.html", page.encode("utf-8"), "text/html; charset=utf-8")
+        if storage.get(f"certs/{cert_id}.deleted") is not None:  # deleted while the page was being written
+            for item in (f"certs/{cert_id}.html", f"certs/{cert_id}.json"):
+                storage.delete(item)
+            raise JobDeleted(cert_id)
 
     # Owner actions
 
