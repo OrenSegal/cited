@@ -260,15 +260,27 @@ def _narrow(raw_sentence: str, links: list[re.Match], i: int) -> tuple[str, bool
 FOOTNOTE_MARKER = re.compile(r"^[\[(]?\s*(\d{1,3}|[*\u2020\u2021\u00a7]{1,3})\s*[\])]?$")
 
 
+# Words that hand the sentence to the link after them: "..., according to
+# [this article](url)". A bare "per" counts only after a comma or an opening
+# bracket, so "$5 per [page](url)" is not an attribution.
+ATTRIBUTION = re.compile(
+    r"(?:(?:^|(?<=[\s,(]))(?:according to|as (?:reported|stated|noted|described) (?:by|in)|reported by|citing)"
+    r"|(?:^|(?<=[,(]))\s*per)\s+$", re.IGNORECASE)
+
+
 def _marker_span(raw_sentence: str, link: re.Match) -> tuple[int, int] | None:
     """The stretch of the sentence a citation marker occupies, or None if the
-    link is not one. A marker is a footnote number ("[1]", "*"), or a
-    navigational link that is alone inside its brackets: "([source](url))"."""
+    link is not one. A marker is a footnote number ("[1]", "*"), a
+    navigational link that is alone inside its brackets ("([source](url))"),
+    or one introduced by an attribution ("according to [this article](url)")."""
     if not _is_bare(link.group(1)):
         return None
     before, after = raw_sentence[:link.start()].rstrip(), raw_sentence[link.end():].lstrip()
     if before.endswith(("(", "[")) and after.startswith((")", "]")):
         return len(before) - 1, len(raw_sentence) - len(after) + 1
+    attributed = ATTRIBUTION.search(raw_sentence[:link.start()])
+    if attributed:
+        return attributed.start(), link.end()
     if FOOTNOTE_MARKER.match(link.group(1).strip()):
         return link.start(), link.end()
     return None
@@ -288,7 +300,9 @@ def _own_sentence_claim(raw_sentence: str, links: list[re.Match], i: int) -> str
         return ""
 
     def tidy(text: str) -> str:
-        text = re.sub(r"\s+([.,;:!?])", r"\1", _strip_markdown(text))
+        text = re.sub(r"[(\[]\s*[)\]]", " ", _strip_markdown(text))  # brackets a marker left empty
+        text = re.sub(r"\s+([.,;:!?])", r"\1", " ".join(text.split()))
+        text = re.sub(r",([.!?])", r"\1", text)
         text = re.sub(r"^[\s,;:+&|/\u2013\u2014-]+|[\s,;:+&|/\u2013\u2014-]+$", "", text)
         return re.sub(r"^(and|or|but|plus|while|whereas)\s+", "", text, flags=re.IGNORECASE)
 

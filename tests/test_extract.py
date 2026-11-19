@@ -319,3 +319,29 @@ class Images(unittest.TestCase):
     def test_a_linked_badge_is_navigation_not_a_claim(self):
         pairs = extract("[![build status](https://example.com/b.svg)](https://example.com/ci)")
         self.assertEqual([p.bucket for p in pairs], ["excluded"])
+
+
+class AttributedNavigationalLinks(unittest.TestCase):
+    """"..., according to [this article](url)." names the source of its own
+    sentence. Shipped bug: the link was matched to the sentence before, so that
+    sentence was checked against a source it never cited and the real claim
+    was not checked at all."""
+
+    def test_trailing_attribution_cites_its_own_sentence(self):
+        md = ("Acme is a large robotics company in Boston. It raised $12M in a Series A round, "
+              "according to [this article](https://example.com/d).")
+        self.assertEqual([(p.bucket, p.claim) for p in extract(md)],
+                         [("checkable", "It raised $12M in a Series A round.")])
+
+    def test_leading_attribution_cites_its_own_sentence(self):
+        md = "Acme is big. According to [this article](https://example.com/d), Acme raised $12M in 2024."
+        self.assertEqual([(p.bucket, p.claim) for p in extract(md)], [("checkable", "Acme raised $12M in 2024.")])
+
+    def test_parenthesised_attribution(self):
+        md = "Acme raised $12M in a Series A round (per [the docs](https://example.com/d))."
+        self.assertEqual([(p.bucket, p.claim) for p in extract(md)],
+                         [("checkable", "Acme raised $12M in a Series A round.")])
+
+    def test_a_price_per_page_is_not_an_attribution(self):
+        md = "Printing costs $5 per [page](https://example.com/p)."
+        self.assertEqual([p.bucket for p in extract(md)], ["excluded"])
