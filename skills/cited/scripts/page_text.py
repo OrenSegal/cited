@@ -91,6 +91,15 @@ def _ldjson_strings(raw: str) -> str:
     return " ".join(found)
 
 
+# Tags that sit inside a run of text. Every other tag (p, div, li, td, br,
+# h1...) is a boundary a reader sees as a break, so it must separate words even
+# when the HTML has no whitespace around it, as on any minified page.
+_INLINE_TAGS = frozenset({
+    "a", "abbr", "b", "bdi", "bdo", "cite", "code", "data", "del", "dfn", "em", "font", "i", "ins", "kbd",
+    "mark", "q", "s", "samp", "small", "span", "strike", "strong", "sub", "sup", "time", "tt", "u", "var", "wbr",
+})
+
+
 class _TextExtractor(HTMLParser):
     """Visible text, plus meta descriptions and JSON-LD string values: the
     latter two are what a JavaScript-rendered page still exposes to a plain
@@ -103,6 +112,8 @@ class _TextExtractor(HTMLParser):
         self._in_ldjson = False
 
     def handle_starttag(self, tag: str, attrs: Any) -> None:
+        if tag not in _INLINE_TAGS:
+            self._chunks.append(" ")
         if tag == "script":
             attr_map = dict(attrs)
             self._in_ldjson = (attr_map.get("type") or "").strip().lower() == "application/ld+json"
@@ -117,6 +128,8 @@ class _TextExtractor(HTMLParser):
                 self._chunks.append(f" {content} ")
 
     def handle_endtag(self, tag: str) -> None:
+        if tag not in _INLINE_TAGS:
+            self._chunks.append(" ")
         if tag in ("script", "style"):
             self._skip = False
             self._in_ldjson = False
