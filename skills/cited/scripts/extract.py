@@ -601,7 +601,11 @@ def extract(markdown: str, doc_id: str = "doc") -> list[Pair]:
                     continue
 
                 claim, narrowed = _narrow(raw_sentence, links, i)
-                plain = _strip_markdown(link_text) or link_text
+                # A linked image ("[![alt](src)](url)") has no prose in its text. Measure
+                # it by its alt text, not by the image URL, or a long URL makes the
+                # link look like it is most of the sentence.
+                plain = (_strip_markdown(link_text)
+                         or re.sub(r"!\[([^\]]*)\]\([^)]*\)", r"\1", link_text).strip() or link_text)
                 bare = _is_bare(link_text)
                 # "The link is most of the sentence" only means *citation marker*
                 # when the link text is short. When someone writes the whole

@@ -308,6 +308,15 @@ class Images(unittest.TestCase):
         self.assertEqual([(p.bucket, p.source_url) for p in pairs], [("excluded", "https://example.com/chart.png")])
         self.assertIn("image", pairs[0].reason)
 
+    def test_a_linked_image_does_not_hand_its_link_the_sentence_before(self):
+        # The image URL is long, the alt text short: the link is not "most of
+        # the sentence", so it keeps its own sentence as it did before.
+        md = ("Acme is a robotics firm in Boston. [![Build](https://example.com/badges/build.svg)]"
+              "(https://ci.example.com/run) shows the build passing on main today.")
+        pairs = extract(md)
+        self.assertEqual([(p.bucket, p.claim) for p in pairs],
+                         [("checkable", "shows the build passing on main today.")])
+
     def test_alt_text_stays_out_of_a_neighbouring_claim(self):
         md = ("Northwind grew revenue 40% in 2025 ![Bar chart](https://example.com/c.png) according to "
               "[its annual report](https://example.com/r).")
