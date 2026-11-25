@@ -7,6 +7,7 @@ metadata:
     homepage: https://github.com/OrenSegal/cited
     requires:
       bins: [python3]
+model: sonnet
 ---
 
 # cited
